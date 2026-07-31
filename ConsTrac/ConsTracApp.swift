@@ -2,31 +2,35 @@
 //  ConsTracApp.swift
 //  ConsTrac
 //
-//  Created by maria gemma lusterio on 7/31/26.
-//
 
 import SwiftUI
 import SwiftData
 
 @main
 struct ConsTracApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+    private let modelContainer: ModelContainer
+    @State private var syncQueue = SyncQueue()
 
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    init() {
+        modelContainer = DataController.makeContainer()
+    }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainTabView()
+                .environment(syncQueue)
+                .onAppear {
+                    let context = modelContainer.mainContext
+                    DataController.seedMockDataIfNeeded(context: context)
+                    syncQueue.configure(context: context)
+                    let autoSync = UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.autoSyncEnabled) as? Bool ?? true
+                    if autoSync {
+                        syncQueue.startAutoSync()
+                    }
+                    // Warm NetworkMonitor
+                    _ = NetworkMonitor.shared
+                }
         }
-        .modelContainer(sharedModelContainer)
+        .modelContainer(modelContainer)
     }
 }
