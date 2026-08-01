@@ -12,6 +12,7 @@ enum APIEndpoint {
     // Employees
     case getEmployees
     case postEmployee
+    case putEmployee(String)
     // Face embeddings (encrypted payloads only)
     case getFaceEmbeddings
     case postFaceEmbedding
@@ -29,6 +30,8 @@ enum APIEndpoint {
         switch self {
         case .getEmployees, .postEmployee:
             return "/employees"
+        case .putEmployee(let serverId):
+            return "/employees/\(serverId)"
         case .getFaceEmbeddings, .postFaceEmbedding:
             return "/face-embeddings"
         case .getFaceEnrollmentPhotos, .postFaceEnrollmentPhoto:
@@ -46,6 +49,8 @@ enum APIEndpoint {
         switch self {
         case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postAttendance, .adminLogin:
             return "POST"
+        case .putEmployee:
+            return "PUT"
         case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getAttendance, .healthCheck:
             return "GET"
         }

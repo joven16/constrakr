@@ -62,7 +62,7 @@ final class EmployeeRepository {
         return try context.fetch(descriptor).first
     }
 
-    /// Employees not yet acknowledged by the backend (duplicate upload prevention via serverId).
+    /// New employees awaiting first upload.
     func fetchPendingSync() throws -> [Employee] {
         let pending = SyncStatus.pending.rawValue
         let failed = SyncStatus.failed.rawValue
@@ -76,8 +76,22 @@ final class EmployeeRepository {
         return try context.fetch(descriptor)
     }
 
+    /// Profile edits on employees already synced to the backend.
+    func fetchPendingUpdates() throws -> [Employee] {
+        let pending = SyncStatus.pending.rawValue
+        let failed = SyncStatus.failed.rawValue
+        let descriptor = FetchDescriptor<Employee>(
+            predicate: #Predicate { employee in
+                (employee.syncStatusRaw == pending || employee.syncStatusRaw == failed)
+                    && employee.serverId != nil
+            },
+            sortBy: [SortDescriptor(\.updatedAt)]
+        )
+        return try context.fetch(descriptor)
+    }
+
     func pendingCount() throws -> Int {
-        try fetchPendingSync().count
+        try fetchPendingSync().count + fetchPendingUpdates().count
     }
 
     func save(_ employee: Employee) throws {

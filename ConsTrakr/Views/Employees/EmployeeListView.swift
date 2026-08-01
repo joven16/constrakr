@@ -11,63 +11,95 @@ struct EmployeeListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AppTabRouter.self) private var tabRouter
     @State private var viewModel = EmployeeListViewModel()
+    @State private var employeesPendingDeletion: [Employee] = []
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
-            Group {
-                if viewModel.employees.isEmpty {
-                    ContentUnavailableView(
-                        "No Employees",
-                        systemImage: "person.slash",
-                        description: Text("Tap Register to enroll a new employee.")
-                    )
-                } else {
-                    List {
-                        ForEach(viewModel.employees, id: \.id) { employee in
-                            NavigationLink {
-                                EmployeeDetailView(employee: employee)
-                            } label: {
-                                EmployeeRow(employee: employee)
-                            }
-                        }
-                        .onDelete { indexSet in
-                            for index in indexSet {
-                                viewModel.delete(viewModel.employees[index])
-                            }
+            employeeListContent
+        }
+    }
+
+    @ViewBuilder
+    private var employeeListContent: some View {
+        Group {
+            if viewModel.employees.isEmpty {
+                ContentUnavailableView(
+                    "No Employees",
+                    systemImage: "person.slash",
+                    description: Text("Tap Register to enroll a new employee.")
+                )
+            } else {
+                List {
+                    ForEach(viewModel.employees, id: \.id) { employee in
+                        NavigationLink {
+                            EmployeeDetailView(employee: employee)
+                        } label: {
+                            EmployeeRow(employee: employee)
                         }
                     }
-                    .listStyle(.insetGrouped)
-                }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        EmployeeRegistrationView()
-                    } label: {
-                        Label("Register", systemImage: "person.crop.circle.badge.plus")
+                    .onDelete { indexSet in
+                        employeesPendingDeletion = indexSet.map { viewModel.employees[$0] }
+                        showDeleteConfirmation = true
                     }
                 }
+                .listStyle(.insetGrouped)
             }
-            .searchable(text: $viewModel.searchText, prompt: "Search name, code, department")
-            .onChange(of: viewModel.searchText) { _, _ in
-                viewModel.refresh()
-            }
-            .onAppear {
-                viewModel.configure(context: modelContext)
-            }
-            .onChange(of: tabRouter.selectedTab) { _, tab in
-                if tab == .employees {
-                    viewModel.refresh()
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    EmployeeRegistrationView()
+                } label: {
+                    Label("Register", systemImage: "person.crop.circle.badge.plus")
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
+        }
+        .searchable(text: $viewModel.searchText, prompt: "Search name, code, department")
+        .alert("Delete employee?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                employeesPendingDeletion = []
+            }
+            Button("Delete", role: .destructive) {
+                confirmDeleteEmployees()
+            }
+        } message: {
+            Text(deleteConfirmationMessage)
+        }
+        .onChange(of: viewModel.searchText) { _, _ in
+            viewModel.refresh()
+        }
+        .onAppear {
+            viewModel.configure(context: modelContext)
+        }
+        .onChange(of: tabRouter.selectedTab) { _, tab in
+            if tab == .employees {
                 viewModel.refresh()
             }
-            .refreshable {
-                viewModel.refresh()
-            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
+            viewModel.refresh()
+        }
+        .refreshable {
+            viewModel.refresh()
+        }
+    }
+
+    private var deleteConfirmationMessage: String {
+        if employeesPendingDeletion.count == 1, let employee = employeesPendingDeletion.first {
+            return "\(employee.fullName) (\(employee.employeeCode)) will be removed from this device, including face enrollment data. This cannot be undone."
+        }
+        return "\(employeesPendingDeletion.count) employees will be removed from this device, including face enrollment data. This cannot be undone."
+    }
+
+    private func confirmDeleteEmployees() {
+        let toDelete = employeesPendingDeletion
+        employeesPendingDeletion = []
+        showDeleteConfirmation = false
+        for employee in toDelete {
+            viewModel.delete(employee)
         }
     }
 }
@@ -189,5 +221,15 @@ struct EmployeeDetailView: View {
             }
         }
         .navigationTitle(employee.fullName)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    EmployeeEditView(employee: employee)
+                } label: {
+                    Text("Edit")
+                }
+            }
+        }
     }
 }

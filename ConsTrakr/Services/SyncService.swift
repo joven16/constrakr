@@ -52,6 +52,7 @@ final class SyncService {
         }
 
         try await uploadPendingEmployees(context: context)
+        try await uploadUpdatedEmployees(context: context)
         try await uploadPendingEmbeddings(context: context)
         try await uploadPendingEnrollmentPhotos(context: context)
         try await uploadPendingAttendance(context: context)
@@ -100,6 +101,38 @@ final class SyncService {
                     photo.employeeServerId = response.serverId
                     try photoRepo.update(photo)
                 }
+            } catch {
+                employee.syncStatus = .failed
+                try? repo.update(employee)
+                throw error
+            }
+        }
+    }
+
+    private func uploadUpdatedEmployees(context: ModelContext) async throws {
+        let repo = EmployeeRepository(context: context)
+        let pending = try repo.fetchPendingUpdates()
+
+        for employee in pending {
+            guard let serverId = employee.serverId else { continue }
+            employee.syncStatus = .syncing
+            try repo.update(employee)
+
+            let dto = EmployeeDTO(
+                serverId: serverId,
+                localId: employee.id,
+                employeeCode: employee.employeeCode,
+                firstName: employee.firstName,
+                lastName: employee.lastName,
+                department: employee.department,
+                encryptedDepthSignatureBase64: employee.faceDepthSignatureData.isEmpty
+                    ? nil
+                    : employee.faceDepthSignatureData.base64EncodedString()
+            )
+            do {
+                _ = try await api.putEmployee(dto)
+                employee.syncStatus = .synced
+                try repo.update(employee)
             } catch {
                 employee.syncStatus = .failed
                 try? repo.update(employee)

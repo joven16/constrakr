@@ -91,6 +91,23 @@ actor APIService {
         return try JSONDecoder.api.decode(EmployeeUpsertResponse.self, from: data)
     }
 
+    func putEmployee(_ dto: EmployeeDTO) async throws -> EmployeeUpsertResponse {
+        guard let serverId = dto.serverId else {
+            throw NetworkError.invalidURL
+        }
+        var request = try makeRequest(for: .putEmployee(serverId))
+        request.httpBody = try JSONEncoder.api.encode(dto)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if isPlaceholderHost {
+            return EmployeeUpsertResponse(serverId: serverId, localId: dto.localId)
+        }
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response)
+        return try JSONDecoder.api.decode(EmployeeUpsertResponse.self, from: data)
+    }
+
     // MARK: - Face embeddings  GET/POST /face-embeddings
 
     func getFaceEmbeddings() async throws -> [FaceEmbeddingDTO] {

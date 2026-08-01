@@ -126,6 +126,40 @@ final class EmployeeService {
         try repository.delete(employee)
     }
 
+    func updateProfile(
+        employee: Employee,
+        employeeCode: String,
+        firstName: String,
+        lastName: String,
+        department: String
+    ) throws {
+        let code = employeeCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dept = department.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !code.isEmpty else { throw ServiceError.invalidInput("Employee code is required.") }
+        guard !first.isEmpty else { throw ServiceError.invalidInput("First name is required.") }
+        guard !last.isEmpty else { throw ServiceError.invalidInput("Last name is required.") }
+
+        if let other = try repository.fetch(code: code), other.id != employee.id {
+            throw ServiceError.duplicateCode
+        }
+        if let other = try repository.fetchByFullName(firstName: first, lastName: last),
+           other.id != employee.id {
+            throw ServiceError.duplicateName
+        }
+
+        employee.employeeCode = code
+        employee.firstName = first
+        employee.lastName = last
+        employee.department = dept.isEmpty ? "General" : dept
+        employee.updatedAt = Date()
+        employee.syncStatus = .pending
+        try repository.update(employee)
+        NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
+    }
+
     func count() throws -> Int {
         try repository.count()
     }
