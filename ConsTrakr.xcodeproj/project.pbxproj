@@ -395,6 +395,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "ConsTrakr needs camera access to enroll employee faces and record attendance.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "ConsTrakr uses your location to confirm Time In / Time Out happen on the job site.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -434,6 +435,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "ConsTrakr needs camera access to enroll employee faces and record attendance.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "ConsTrakr uses your location to confirm Time In / Time Out happen on the job site.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

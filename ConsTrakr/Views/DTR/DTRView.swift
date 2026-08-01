@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct DTRView: View {
     @Environment(\.modelContext) private var modelContext
@@ -37,11 +38,13 @@ struct DTRView: View {
                                 timeColumn(
                                     title: CheckType.checkIn.displayName,
                                     time: row.timeIn,
+                                    attendanceId: row.timeInAttendanceId,
                                     color: .green
                                 )
                                 timeColumn(
                                     title: CheckType.checkOut.displayName,
                                     time: row.timeOut,
+                                    attendanceId: row.timeOutAttendanceId,
                                     color: .orange
                                 )
                             }
@@ -92,17 +95,22 @@ struct DTRView: View {
         .padding(.bottom, 8)
     }
 
-    private func timeColumn(title: String, time: Date?, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func timeColumn(title: String, time: Date?, attendanceId: UUID?, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(color)
             if let time {
-                Text(time.timeOnly)
-                    .font(.title3.monospaced().weight(.semibold))
-                Text(time.formatted(date: .abbreviated, time: .omitted))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    punchThumb(attendanceId)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(time.timeOnly)
+                            .font(.title3.monospaced().weight(.semibold))
+                        Text(time.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             } else {
                 Text("—")
                     .font(.title3.weight(.semibold))
@@ -112,5 +120,18 @@ struct DTRView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func punchThumb(_ attendanceId: UUID?) -> some View {
+        if let attendanceId,
+           let data = AttendancePhotoStore.load(attendanceId: attendanceId),
+           let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 36, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
     }
 }

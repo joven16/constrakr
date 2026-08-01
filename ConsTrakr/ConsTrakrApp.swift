@@ -10,6 +10,7 @@ import SwiftData
 struct ConsTrakrApp: App {
     private let modelContainer: ModelContainer
     @State private var syncQueue = SyncQueue()
+    @State private var tabRouter = AppTabRouter()
 
     init() {
         modelContainer = DataController.makeContainer()
@@ -19,6 +20,7 @@ struct ConsTrakrApp: App {
         WindowGroup {
             MainTabView()
                 .environment(syncQueue)
+                .environment(tabRouter)
                 .onAppear {
                     let context = modelContainer.mainContext
                     DataController.seedMockDataIfNeeded(context: context)

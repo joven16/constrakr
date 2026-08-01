@@ -21,6 +21,8 @@ final class Employee {
     var department: String
     /// Encrypted JSON blob of `[FaceEmbedding]` for fast local matching after decrypt.
     var faceEmbeddingsData: Data
+    /// Encrypted TrueDepth face geometry from enrollment (empty if not scanned / no TrueDepth).
+    var faceDepthSignatureData: Data = Data()
     var syncStatusRaw: String
     var createdAt: Date
     var updatedAt: Date
@@ -33,6 +35,7 @@ final class Employee {
         lastName: String,
         department: String,
         faceEmbeddings: [FaceEmbedding] = [],
+        faceDepthSignature: FaceDepthSignature? = nil,
         syncStatus: SyncStatus = .pending,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -45,6 +48,12 @@ final class Employee {
         self.department = department
         // CHANGE: encrypt before persisting (offline-first security requirement).
         self.faceEmbeddingsData = (try? EmbeddingCrypto.encryptEmbeddings(faceEmbeddings)) ?? Data()
+        if let faceDepthSignature {
+            self.faceDepthSignatureData =
+                (try? EmbeddingCrypto.encryptDepthSignature(faceDepthSignature)) ?? Data()
+        } else {
+            self.faceDepthSignatureData = Data()
+        }
         self.syncStatusRaw = syncStatus.rawValue
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -81,5 +90,24 @@ final class Employee {
 
     var isEnrolled: Bool {
         !faceEmbeddings.isEmpty
+    }
+
+    var faceDepthSignature: FaceDepthSignature? {
+        get {
+            guard !faceDepthSignatureData.isEmpty else { return nil }
+            return try? EmbeddingCrypto.decryptDepthSignature(faceDepthSignatureData)
+        }
+        set {
+            if let newValue {
+                faceDepthSignatureData =
+                    (try? EmbeddingCrypto.encryptDepthSignature(newValue)) ?? Data()
+            } else {
+                faceDepthSignatureData = Data()
+            }
+            updatedAt = Date()
+            if syncStatus == .synced {
+                syncStatus = .pending
+            }
+        }
     }
 }

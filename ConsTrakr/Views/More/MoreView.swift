@@ -36,6 +36,17 @@ struct MoreView: View {
                 } footer: {
                     Text("Testing only — deletes all Time In and Time Out records on this device.")
                 }
+
+                Section("Credits") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(AppConstants.appName)
+                            .font(.headline)
+                        Text("by Joven Lusterio")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
             }
             .navigationTitle("More")
             .alert("Clear all DTR records?", isPresented: $confirmClearDTR) {

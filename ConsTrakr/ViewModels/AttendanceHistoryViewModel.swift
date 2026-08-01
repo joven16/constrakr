@@ -10,7 +10,8 @@ import SwiftData
 @Observable
 final class AttendanceHistoryViewModel {
     var filterCheckType: CheckType?
-    var showPendingOnly = true
+    /// Show all records by default so punch photos are easy to audit.
+    var showPendingOnly = false
 
     private(set) var records: [HistoryItem] = []
     private(set) var totalRecordCount = 0

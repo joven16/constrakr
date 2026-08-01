@@ -22,6 +22,8 @@ final class DTRViewModel {
         let employeeCode: String
         let timeIn: Date?
         let timeOut: Date?
+        let timeInAttendanceId: UUID?
+        let timeOutAttendanceId: UUID?
     }
 
     var dayTitle: String {
@@ -48,6 +50,8 @@ final class DTRViewModel {
                 var code: String
                 var timeIn: Date?
                 var timeOut: Date?
+                var timeInAttendanceId: UUID?
+                var timeOutAttendanceId: UUID?
             }
 
             var byEmployee: [UUID: Acc] = [:]
@@ -56,16 +60,20 @@ final class DTRViewModel {
                     name: attendanceService.employeeName(for: record),
                     code: attendanceService.employeeCode(for: record),
                     timeIn: nil,
-                    timeOut: nil
+                    timeOut: nil,
+                    timeInAttendanceId: nil,
+                    timeOutAttendanceId: nil
                 )
                 switch record.checkType {
                 case .checkIn:
                     if acc.timeIn == nil || record.timestamp < acc.timeIn! {
                         acc.timeIn = record.timestamp
+                        acc.timeInAttendanceId = record.id
                     }
                 case .checkOut:
                     if acc.timeOut == nil || record.timestamp > acc.timeOut! {
                         acc.timeOut = record.timestamp
+                        acc.timeOutAttendanceId = record.id
                     }
                 }
                 byEmployee[record.employeeId] = acc
@@ -77,7 +85,9 @@ final class DTRViewModel {
                     employeeName: acc.name,
                     employeeCode: acc.code,
                     timeIn: acc.timeIn,
-                    timeOut: acc.timeOut
+                    timeOut: acc.timeOut,
+                    timeInAttendanceId: acc.timeInAttendanceId,
+                    timeOutAttendanceId: acc.timeOutAttendanceId
                 )
             }
             .sorted { $0.employeeName.localizedCaseInsensitiveCompare($1.employeeName) == .orderedAscending }

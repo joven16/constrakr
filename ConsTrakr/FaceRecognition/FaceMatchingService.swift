@@ -86,11 +86,14 @@ final class FaceMatchingService {
             guard !poseScores.isEmpty else { continue }
 
             let bestPose = poseScores.max(by: { $0.1 < $1.1 })!
-            let meanPose = poseScores.map(\.1).reduce(0, +) / Float(poseScores.count)
+            // Average only the strongest poses — left/right/up/down naturally score lower
+            // against a frontal scanner probe and were rejecting real matches.
+            let topScores = poseScores.map(\.1).sorted(by: >)
+            let topCount = min(2, topScores.count)
+            let topMean = topScores.prefix(topCount).reduce(0, +) / Float(topCount)
 
-            // Multi-pose gate: one lucky pose is not enough — mean must also be strong.
             let meanFloor = effectiveThreshold - AppConstants.multiPoseMeanSlack
-            guard bestPose.1 >= effectiveThreshold, meanPose >= meanFloor else { continue }
+            guard bestPose.1 >= effectiveThreshold, topMean >= meanFloor else { continue }
 
             candidates.append(
                 Candidate(
@@ -101,7 +104,7 @@ final class FaceMatchingService {
                         similarity: bestPose.1,
                         matchedPose: bestPose.0
                     ),
-                    meanPoseScore: meanPose
+                    meanPoseScore: topMean
                 )
             )
         }

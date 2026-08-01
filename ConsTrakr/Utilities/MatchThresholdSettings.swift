@@ -32,6 +32,12 @@ enum MatchThresholdSettings {
     }
 
     private static func migrateIfNeeded() {
+        migrateFromHandcraftedIfNeeded()
+        migrateLookalikeHardeningIfNeeded()
+        migrateRecognitionRetuneIfNeeded()
+    }
+
+    private static func migrateFromHandcraftedIfNeeded() {
         let flag = AppConstants.UserDefaultsKeys.thresholdMigratedForAdaFace
         guard !UserDefaults.standard.bool(forKey: flag) else { return }
         defer { UserDefaults.standard.set(true, forKey: flag) }
@@ -40,6 +46,38 @@ enum MatchThresholdSettings {
         guard CoreMLFaceRecognizer.shared.isReady else { return }
         let stored = UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.matchThreshold)
         if stored <= 0 || stored >= 0.80 {
+            UserDefaults.standard.set(
+                Double(AppConstants.adaFaceMatchThreshold),
+                forKey: AppConstants.UserDefaultsKeys.matchThreshold
+            )
+        }
+    }
+
+    /// Bumps devices still on the older 0.42 default up to a sensible AdaFace floor.
+    private static func migrateLookalikeHardeningIfNeeded() {
+        let flag = AppConstants.UserDefaultsKeys.thresholdHardenedLookalike
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        defer { UserDefaults.standard.set(true, forKey: flag) }
+
+        guard CoreMLFaceRecognizer.shared.isReady else { return }
+        let stored = UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.matchThreshold)
+        if stored <= 0 || stored < 0.40 {
+            UserDefaults.standard.set(
+                Double(AppConstants.adaFaceMatchThreshold),
+                forKey: AppConstants.UserDefaultsKeys.matchThreshold
+            )
+        }
+    }
+
+    /// Previous build set 0.50–0.55 which rejected too many real matches — ease back.
+    private static func migrateRecognitionRetuneIfNeeded() {
+        let flag = AppConstants.UserDefaultsKeys.thresholdRecognitionRetune
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        defer { UserDefaults.standard.set(true, forKey: flag) }
+
+        guard CoreMLFaceRecognizer.shared.isReady else { return }
+        let stored = UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.matchThreshold)
+        if stored >= 0.48 && stored <= 0.56 {
             UserDefaults.standard.set(
                 Double(AppConstants.adaFaceMatchThreshold),
                 forKey: AppConstants.UserDefaultsKeys.matchThreshold

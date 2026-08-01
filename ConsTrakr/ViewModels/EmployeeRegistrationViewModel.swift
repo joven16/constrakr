@@ -2,7 +2,11 @@
 //  EmployeeRegistrationViewModel.swift
 //  ConsTrakr
 //
+//  Enrollment: blink → brief 3D scan → five poses.
+//  Calm, stable on-screen text (no per-frame hint thrashing).
+//
 
+import AVFoundation
 import CoreVideo
 import Foundation
 import SwiftData
@@ -21,6 +25,12 @@ enum RegistrationStep: Int, CaseIterable {
     }
 }
 
+enum EnrollScanPhase: Equatable {
+    case blink
+    case depthScan
+    case poses
+}
+
 @MainActor
 @Observable
 final class EmployeeRegistrationViewModel {
@@ -35,23 +45,51 @@ final class EmployeeRegistrationViewModel {
     private(set) var capturedPhotos: [FacePose: Data] = [:]
     private(set) var faceDetected = false
     private(set) var poseMatched = false
-    private(set) var detectedPose: FacePose = .center
-    private(set) var statusMessage = "Enter employee details to continue."
     private(set) var isEnrolling = false
     private(set) var isSaving = false
     private(set) var didSave = false
     private(set) var successMessage: String?
+    private(set) var guideConditionMet = false
+    private(set) var livenessNeedsLookStraight = false
+    private(set) var scanPhase: EnrollScanPhase = .blink
+    private(set) var depthScanProgress: Double = 0
     var errorMessage: String?
     private(set) var cameraError: String?
+
+    /// Stable line on the camera overlay — changes only when the phase changes.
+    private(set) var primaryInstruction = "Blink both eyes slowly"
+
+    var overlayChallenge: LivenessChallenge? {
+        guard step == .faceScan, isEnrolling, scanPhase != .poses else { return nil }
+        return scanPhase == .depthScan ? .confirm3D : .blink
+    }
+
+    var overlayPose: FacePose? {
+        guard step == .faceScan, isEnrolling, scanPhase == .poses else { return nil }
+        return currentPose
+    }
+
+    /// Step dots: blink → 3D → poses (shown as one block after live checks).
+    var liveStepNumber: Int {
+        switch scanPhase {
+        case .blink: return 1
+        case .depthScan: return 2
+        case .poses: return 3
+        }
+    }
+
+    let liveStepTotal = 3
 
     let cameraManager = CameraManager()
 
     private let detectionService = FaceDetectionService()
     private let embeddingService = FaceEmbeddingService()
+    private var livenessChecker = LivenessChecker(challenge: .blink)
+    private var depthScanAccumulator = FaceDepthScanAccumulator()
+    private var capturedDepthSignature: FaceDepthSignature?
     private var employeeService: EmployeeService?
     private var poseHoldStart: Date?
     private var isProcessingFrame = false
-    private var resetTask: Task<Void, Never>?
 
     var enrollmentProgress: Double {
         Double(capturedEmbeddings.count) / Double(FacePose.allCases.count)
@@ -68,6 +106,7 @@ final class EmployeeRegistrationViewModel {
             && capturedEmbeddings.count == FacePose.allCases.count
             && !isSaving
             && !didSave
+            && (capturedDepthSignature != nil || !cameraManager.isDepthAvailable)
     }
 
     var stepIndex: Int { step.rawValue }
@@ -80,9 +119,9 @@ final class EmployeeRegistrationViewModel {
     func startCamera() async {
         do {
             try await cameraManager.requestAccessAndConfigure()
-            cameraManager.onFrame = { [weak self] buffer in
+            cameraManager.onFrame = { [weak self] buffer, depth in
                 Task { @MainActor in
-                    self?.handleFrame(buffer)
+                    self?.handleFrame(buffer, depthData: depth)
                 }
             }
             cameraManager.start()
@@ -94,6 +133,7 @@ final class EmployeeRegistrationViewModel {
 
     func stopCamera() {
         cameraManager.onFrame = nil
+        isProcessingFrame = false
         cameraManager.stop()
     }
 
@@ -114,25 +154,28 @@ final class EmployeeRegistrationViewModel {
         guard !didSave, !isSaving else { return }
         resetEnrollment(keepStatus: false)
         step = .details
-        statusMessage = "Enter employee details to continue."
+        primaryInstruction = "Enter employee details to continue."
         stopCamera()
     }
 
     func startEnrollment() {
-        guard isFormValid else {
-            errorMessage = "Fill in employee details before enrollment."
-            return
-        }
-        guard !didSave else { return }
+        guard isFormValid, !didSave else { return }
         capturedEmbeddings.removeAll()
         capturedPhotos.removeAll()
+        capturedDepthSignature = nil
+        depthScanAccumulator.reset()
+        depthScanProgress = 0
         currentPose = .center
         poseHoldStart = nil
         isEnrolling = true
         didSave = false
         successMessage = nil
         errorMessage = nil
-        statusMessage = currentPose.instruction
+        scanPhase = .blink
+        livenessChecker.reset(newChallenge: .blink)
+        livenessNeedsLookStraight = false
+        guideConditionMet = false
+        setInstruction("Blink both eyes slowly")
         if !cameraManager.isRunning {
             Task { await startCamera() }
         }
@@ -141,12 +184,17 @@ final class EmployeeRegistrationViewModel {
     func resetEnrollment(keepStatus: Bool = true) {
         capturedEmbeddings.removeAll()
         capturedPhotos.removeAll()
+        capturedDepthSignature = nil
+        depthScanAccumulator.reset()
+        depthScanProgress = 0
         currentPose = .center
         poseHoldStart = nil
         isEnrolling = false
+        scanPhase = .blink
+        guideConditionMet = false
         errorMessage = nil
         if keepStatus {
-            statusMessage = "Enrollment reset. Tap Start Face Scan to begin again."
+            setInstruction("Tap Restart Scan to begin again.")
         }
     }
 
@@ -163,14 +211,15 @@ final class EmployeeRegistrationViewModel {
                 lastName: lastName,
                 department: department.isEmpty ? "General" : department,
                 embeddings: embeddings,
+                faceDepthSignature: capturedDepthSignature,
                 enrollmentPhotos: capturedPhotos
             )
             didSave = true
             isEnrolling = false
-            step = .done
-            successMessage = "Employee registered successfully."
-            statusMessage = successMessage ?? ""
-            scheduleAutoReset()
+            successMessage = "\(firstName) \(lastName) was registered successfully."
+            setInstruction("Registration complete")
+            stopCamera()
+            NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
         } catch {
             errorMessage = error.localizedDescription
             step = .faceScan
@@ -178,20 +227,17 @@ final class EmployeeRegistrationViewModel {
     }
 
     func acknowledgeSuccessAndReset() {
-        resetTask?.cancel()
-        resetTask = nil
         resetForNextEmployee()
     }
 
-    private func scheduleAutoReset() {
-        resetTask?.cancel()
-        resetTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(AppConstants.registrationResetDelay))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                self?.resetForNextEmployee()
-            }
-        }
+    /// Lightweight handoff after the success alert — navigation only, no heavy reset here.
+    func finishRegistrationAndDismiss() {
+        stopCamera()
+    }
+
+    /// Called after the user confirms the registration success prompt.
+    func finalizeRegistrationAfterSuccess() {
+        finishRegistrationAndDismiss()
     }
 
     private func resetForNextEmployee() {
@@ -201,6 +247,9 @@ final class EmployeeRegistrationViewModel {
         department = ""
         capturedEmbeddings.removeAll()
         capturedPhotos.removeAll()
+        capturedDepthSignature = nil
+        depthScanAccumulator.reset()
+        depthScanProgress = 0
         currentPose = .center
         poseHoldStart = nil
         isEnrolling = false
@@ -210,105 +259,187 @@ final class EmployeeRegistrationViewModel {
         errorMessage = nil
         faceDetected = false
         poseMatched = false
+        scanPhase = .blink
+        guideConditionMet = false
         step = .details
-        statusMessage = "Enter employee details to continue."
+        primaryInstruction = "Enter employee details to continue."
         stopCamera()
     }
 
-    private func handleFrame(_ pixelBuffer: CVPixelBuffer) {
-        guard step == .faceScan, isEnrolling, !isProcessingFrame, !didSave else { return }
+    private func setInstruction(_ text: String) {
+        guard primaryInstruction != text else { return }
+        primaryInstruction = text
+    }
+
+    private func beginDepthScan() {
+        scanPhase = .depthScan
+        depthScanAccumulator.reset()
+        depthScanProgress = 0
+        setInstruction("Hold still — 3D face scan")
+    }
+
+    private func beginPoseCapture() {
+        scanPhase = .poses
+        currentPose = .center
+        poseHoldStart = nil
+        setInstruction(currentPose.instruction)
+    }
+
+    /// Depth gate during 3D scan — pauses progress on bad frames, never accuses a live user.
+    private func depthAllowsProgress(depthData: AVDepthData?, faceBox: CGRect) -> Bool {
+        guard cameraManager.isDepthAvailable else { return true }
+        guard let depthData else { return false }
+
+        let verdict = DepthFlatnessDetector.evaluate(
+            depthData: depthData,
+            faceBox: faceBox,
+            strict: false
+        )
+        return !verdict.isFlat
+    }
+
+    private func handleFrame(_ pixelBuffer: CVPixelBuffer, depthData: AVDepthData?) {
+        guard step == .faceScan, isEnrolling, !didSave else { return }
+        guard !isProcessingFrame else { return }
         isProcessingFrame = true
         defer { isProcessingFrame = false }
 
+        let mirrored = cameraManager.position == .front
+
         do {
-            guard let face = try detectionService.primaryFace(in: pixelBuffer) else {
-                faceDetected = false
-                poseMatched = false
-                poseHoldStart = nil
-                statusMessage = "No face detected — center your face in the frame."
-                return
-            }
+            let frame = try FaceImagePreprocessor.copyPixelBuffer(pixelBuffer)
+            let face = try detectionService.primaryFace(in: frame, mirrored: mirrored)
+            faceDetected = face != nil
 
-            faceDetected = true
-            detectedPose = face.estimatedPose
-            let matched = HeadPoseEstimator.matches(currentPose, yaw: face.yaw, pitch: face.pitch)
-            poseMatched = matched
-
-            guard matched else {
-                poseHoldStart = nil
-                if detectedPose == currentPose {
-                    statusMessage = "Almost — turn a bit more for \(currentPose.displayName)"
-                } else {
-                    statusMessage = "Seeing \(detectedPose.displayName). \(currentPose.instruction)"
-                }
-                return
-            }
-
-            if poseHoldStart == nil {
-                poseHoldStart = Date()
-                statusMessage = "Hold still…"
-                return
-            }
-
-            guard let start = poseHoldStart,
-                  Date().timeIntervalSince(start) >= AppConstants.poseHoldDuration
-            else { return }
-
-            let embedding = try embeddingService.generateEmbedding(
-                from: pixelBuffer,
-                face: face,
-                pose: currentPose
-            )
-
-            if let duplicate = try employeeService?.matchingEnrolledFace(probes: [embedding]) {
-                rejectDuplicateFace(duplicate)
-                return
-            }
-
-            if let jpeg = EnrollmentPhotoStore.encodeFaceJPEG(
-                from: pixelBuffer,
-                boundingBox: face.boundingBox
-            ) {
-                capturedPhotos[currentPose] = jpeg
-            }
-
-            capturedEmbeddings[currentPose] = embedding
-            DebugFrameStore.maybePersistDebugFrame(pixelBuffer, label: currentPose.rawValue)
-            poseHoldStart = nil
-
-            if let next = currentPose.next {
-                currentPose = next
-                statusMessage = "Captured! Next: \(next.instruction)"
-            } else {
-                isEnrolling = false
-                statusMessage = "All poses captured. Saving…"
-                saveEmployee()
+            switch scanPhase {
+            case .blink:
+                handleBlinkPhase(face: face, mirrored: mirrored)
+            case .depthScan:
+                handleDepthPhase(face: face, depthData: depthData)
+            case .poses:
+                try handlePosePhase(frame: frame, face: face, mirrored: mirrored)
             }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func rejectDuplicateFace(_ match: FaceMatchResult) {
-        let message = "This face already belongs to \(match.employeeName) (\(match.employeeCode)). Registration stopped."
-        // Full form reset so the user starts clean for a different employee.
-        employeeCode = ""
-        firstName = ""
-        lastName = ""
-        department = ""
-        capturedEmbeddings.removeAll()
-        capturedPhotos.removeAll()
-        currentPose = .center
+    private func handleBlinkPhase(face: DetectedFace?, mirrored: Bool) {
+        guard let face else {
+            guideConditionMet = false
+            livenessNeedsLookStraight = false
+            return
+        }
+
+        let passed = livenessChecker.update(
+            hasFace: true,
+            yaw: face.yaw,
+            pitch: face.pitch,
+            leftEyeEAR: face.leftEyeEAR,
+            rightEyeEAR: face.rightEyeEAR,
+            mirrored: mirrored
+        )
+        livenessNeedsLookStraight = livenessChecker.needsLookStraight
+        guideConditionMet = livenessChecker.isConditionMet
+
+        if passed {
+            if cameraManager.isDepthAvailable {
+                beginDepthScan()
+            } else {
+                capturedDepthSignature = nil
+                beginPoseCapture()
+            }
+        }
+    }
+
+    private func handleDepthPhase(face: DetectedFace?, depthData: AVDepthData?) {
+        guard let face else {
+            guideConditionMet = false
+            depthScanProgress = depthScanAccumulator.progress
+            return
+        }
+
+        guard depthAllowsProgress(depthData: depthData, faceBox: face.boundingBox) else {
+            guideConditionMet = false
+            depthScanProgress = depthScanAccumulator.progress
+            return
+        }
+
+        guideConditionMet = true
+        if let finished = depthScanAccumulator.observe(
+            depthData: depthData,
+            faceBox: face.boundingBox
+        ) {
+            capturedDepthSignature = finished
+            depthScanProgress = 1
+            beginPoseCapture()
+        } else {
+            depthScanProgress = depthScanAccumulator.progress
+        }
+    }
+
+    private func handlePosePhase(
+        frame: CVPixelBuffer,
+        face: DetectedFace?,
+        mirrored: Bool
+    ) throws {
+        guard let face else {
+            poseMatched = false
+            poseHoldStart = nil
+            guideConditionMet = false
+            return
+        }
+
+        let matched = HeadPoseEstimator.matches(currentPose, yaw: face.yaw, pitch: face.pitch)
+        poseMatched = matched
+        guideConditionMet = matched
+
+        guard matched else { return }
+
+        if poseHoldStart == nil {
+            poseHoldStart = Date()
+            setInstruction("Hold still…")
+            return
+        }
+
+        guard let start = poseHoldStart,
+              Date().timeIntervalSince(start) >= AppConstants.poseHoldDuration
+        else { return }
+
+        let embedding = try embeddingService.generateEmbedding(
+            from: frame,
+            face: face,
+            pose: currentPose
+        )
+
+        if let duplicate = try employeeService?.matchingEnrolledFace(probes: [embedding]) {
+            rejectDuplicateFace(duplicate)
+            return
+        }
+
+        if let jpeg = EnrollmentPhotoStore.encodeFaceJPEG(
+            from: frame,
+            boundingBox: face.boundingBox
+        ) {
+            capturedPhotos[currentPose] = jpeg
+        }
+
+        capturedEmbeddings[currentPose] = embedding
+        DebugFrameStore.maybePersistDebugFrame(frame, label: currentPose.rawValue)
         poseHoldStart = nil
-        isEnrolling = false
-        isSaving = false
-        didSave = false
-        successMessage = nil
-        faceDetected = false
-        poseMatched = false
-        step = .details
-        statusMessage = "Enter employee details to continue."
-        errorMessage = message
-        stopCamera()
+
+        if let next = currentPose.next {
+            currentPose = next
+            setInstruction(next.instruction)
+        } else {
+            isEnrolling = false
+            setInstruction("Saving…")
+            saveEmployee()
+        }
+    }
+
+    private func rejectDuplicateFace(_ match: FaceMatchResult) {
+        errorMessage = "This face already belongs to \(match.employeeName) (\(match.employeeCode))."
+        resetForNextEmployee()
     }
 }

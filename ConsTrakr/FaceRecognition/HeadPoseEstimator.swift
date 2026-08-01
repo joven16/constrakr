@@ -8,24 +8,32 @@ import Foundation
 import Vision
 
 /// Estimates approximate head yaw/pitch from Vision face landmarks (no Core ML required).
+/// Pitch convention used everywhere in ConsTrakr:
+///   positive = looking up (chin up), negative = looking down (chin down).
 enum HeadPoseEstimator {
     /// Center band — stay inside this for "look straight".
     private static let centerYawLimit = 0.10
     private static let centerPitchLimit = 0.10
-    /// Minimum angle to accept a directional pose (radians ≈ 5°).
-    private static let turnYawMinimum = 0.09
-    private static let turnPitchMinimum = 0.08
+    /// Yaw turn must be clearly intentional.
+    private static let turnYawMinimum = 0.14
+    /// Look Up — keep fairly strict so resting face does not count.
+    private static let lookUpPitchMinimum = 0.16
+    /// Look Down — slightly easier; chin-down is harder on a selfie angle.
+    private static let lookDownPitchMinimum = 0.12
+    /// Pitch must dominate yaw so a slight chin move isn't enough while mostly turned.
+    private static let pitchDominanceMargin = 0.02
 
     static func estimate(from observation: VNFaceObservation) -> (yaw: Double, pitch: Double, roll: Double) {
         // Prefer Vision's built-in pose angles when available (iOS 15+).
         // Convention: positive yaw = face looking toward the right side of the image.
+        // Vision pitch: positive = nodding DOWN. We invert to positive = looking UP.
         if let yaw = observation.yaw?.doubleValue,
-           let pitch = observation.pitch?.doubleValue {
+           let visionPitch = observation.pitch?.doubleValue {
             let roll = observation.roll?.doubleValue ?? 0
-            return (yaw, pitch, roll)
+            return (yaw, -visionPitch, roll)
         }
 
-        // Fallback: derive coarse pose from landmark geometry.
+        // Fallback: derive coarse pose from landmark geometry (already +up / −down).
         guard let landmarks = observation.landmarks,
               let nose = landmarks.noseCrest?.normalizedPoints.first
                 ?? landmarks.nose?.normalizedPoints.first,
@@ -62,20 +70,22 @@ enum HeadPoseEstimator {
         return pitch > 0 ? .up : .down
     }
 
-    /// Pose-specific matching — more forgiving than requiring a single exclusive class.
+    /// Pose-specific matching — directional poses require a clear, intentional angle.
     static func matches(_ pose: FacePose, yaw: Double, pitch: Double) -> Bool {
         switch pose {
         case .center:
             return abs(yaw) < centerYawLimit && abs(pitch) < centerPitchLimit
         case .left:
             // Subject's left on mirrored selfie → positive yaw in image space.
-            return yaw >= turnYawMinimum
+            return yaw >= turnYawMinimum && abs(yaw) >= abs(pitch)
         case .right:
-            return yaw <= -turnYawMinimum
+            return yaw <= -turnYawMinimum && abs(yaw) >= abs(pitch)
         case .up:
-            return pitch >= turnPitchMinimum
+            return pitch >= lookUpPitchMinimum
+                && abs(pitch) >= abs(yaw) + pitchDominanceMargin
         case .down:
-            return pitch <= -turnPitchMinimum
+            return pitch <= -lookDownPitchMinimum
+                && abs(pitch) >= abs(yaw) + pitchDominanceMargin
         }
     }
 

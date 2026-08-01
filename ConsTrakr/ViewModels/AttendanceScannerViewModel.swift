@@ -6,6 +6,7 @@
 //  and never keep a previous employee name across scans.
 //
 
+import AVFoundation
 import CoreVideo
 import Foundation
 import SwiftData
@@ -13,6 +14,7 @@ import SwiftData
 enum ScannerRecognitionState {
     case idle
     case noFace
+    case liveness
     case unknownPerson
     case poorQuality
     case verifying
@@ -36,7 +38,37 @@ final class AttendanceScannerViewModel {
     private(set) var cameraError: String?
     /// Scanning only runs after the user confirms Time In or Time Out.
     private(set) var isSessionActive = false
+    private(set) var livenessChallenge: LivenessChallenge = .blink
+    private(set) var livenessPassed = false
+    private(set) var livenessHint = "Center your face"
+    private(set) var livenessStepLabel = "Step 1 of 4"
+    /// Stored (not computed) so SwiftUI/@Observable reliably refreshes step UI.
+    private(set) var livenessStepNumber = 1
+    private(set) var livenessTotalSteps = 4
+    /// After turn/nod: show center cue instead of side arrow.
+    private(set) var livenessNeedsLookStraight = false
+    /// After blink/turn/closer: require consecutive real 3D depth frames.
+    private(set) var isAwaitingDepthConfirm = false
+    private var depthConfirmStreak = 0
+    private let depthConfirmNeeded = 10
+    /// Calm instruction — only changes when the step changes, not every frame.
+    private var stableInstruction = "Blink both eyes slowly"
+    /// Challenge shown on the camera overlay (includes 3D confirm step).
+    var overlayChallenge: LivenessChallenge? {
+        guard isSessionActive, !livenessPassed else { return nil }
+        if isAwaitingDepthConfirm { return .confirm3D }
+        return livenessChallenge
+    }
+    /// Outline turns green while the live-check gesture is currently satisfied.
+    private(set) var guideConditionMet = false
     var pendingConfirmType: CheckType?
+    /// After Confirm, show supervisor PIN sheet when enabled.
+    private(set) var isAwaitingSupervisorPIN = false
+    var supervisorPINEntry = ""
+    private(set) var supervisorPINError: String?
+    private(set) var siteGateMessage: String?
+    /// Blocks alert-dismiss `cancelConfirm` from wiping an in-flight Time In/Out start.
+    private var isStartingAuthorizedSession = false
 
     var showsRecognitionDetails: Bool {
         switch recognitionState {
@@ -47,9 +79,100 @@ final class AttendanceScannerViewModel {
         }
     }
 
+    /// 0…1 progress through the live-check steps (for the step dots).
+    var livenessProgress: Double {
+        guard isSessionActive, !livenessPassed else {
+            return livenessPassed ? 1 : 0
+        }
+        let total = max(livenessTotalSteps, 1)
+        if isAwaitingDepthConfirm {
+            let base = Double(total - 1) / Double(total)
+            let frac = Double(depthConfirmStreak) / Double(max(depthConfirmNeeded, 1))
+            return min(0.99, base + frac / Double(total))
+        }
+        return Double(livenessStepNumber - 1) / Double(total)
+    }
+
+    /// Single calm line for the camera caption + status card.
+    var primaryInstruction: String {
+        if let cameraError { return cameraError }
+        if !isSessionActive {
+            return "Tap Time In or Time Out to start"
+        }
+        if !livenessPassed {
+            if recognitionState == .noFace {
+                return isAwaitingDepthConfirm
+                    ? "Keep your face in the outline"
+                    : "Center your face in the outline"
+            }
+            return stableInstruction
+        }
+        switch recognitionState {
+        case .verifying:
+            return statusMessage
+        case .recognized, .alreadyRecorded:
+            return statusMessage
+        case .unknownPerson:
+            return statusMessage.isEmpty ? "Face not recognized" : statusMessage
+        case .poorQuality:
+            return stableInstruction
+        case .noFace:
+            return "Center your face in the outline"
+        default:
+            return faceDetected ? "Matching face…" : "Center your face in the outline"
+        }
+    }
+
+    var secondaryInstruction: String? {
+        if !isSessionActive {
+            var parts: [String] = ["Blink → turn → closer → 3D"]
+            if SupervisorPINSettings.isRequired { parts.append("supervisor PIN on") }
+            if SiteGeofenceSettings.isRequired { parts.append("on-site GPS on") }
+            return parts.joined(separator: " · ")
+        }
+        if !livenessPassed {
+            return livenessStepLabel
+        }
+        if recognitionState == .recognized || recognitionState == .alreadyRecorded,
+           let confidence = lastMatchConfidence {
+            return String(format: "Confidence %.0f%%", max(0, min(confidence, 1)) * 100)
+        }
+        if livenessPassed && (recognitionState == .idle || recognitionState == .verifying) {
+            return "Hold still while we match"
+        }
+        return nil
+    }
+
+    private func setStableInstruction(_ text: String) {
+        guard stableInstruction != text else { return }
+        stableInstruction = text
+    }
+
+    private func syncStableInstructionForLiveness() {
+        if isAwaitingDepthConfirm {
+            setStableInstruction("Hold still — 3D check")
+            return
+        }
+        if livenessChecker.needsLookStraight {
+            setStableInstruction("Look straight at the camera")
+            return
+        }
+        setStableInstruction(livenessChallenge.instruction)
+    }
+
     let cameraManager = CameraManager()
 
     private let pipeline = FaceRecognitionPipeline()
+    private let detectionService = FaceDetectionService()
+    private var livenessChecker = LivenessChecker()
+    private let depthMotionValidator = DepthMotionValidator()
+    private let spoofTracker = PresentationSpoofDetector.Tracker()
+    private let antiSpoofTracker = AntiSpoofTracker()
+    /// True once we received a usable depth map this session.
+    private var sawValidDepthThisSession = false
+    /// If TrueDepth never delivers maps, fall back so the scanner is not bricked.
+    /// Face crop from the consensus frame saved with the punch for audit.
+    private var pendingPunchJPEG: Data?
     private var attendanceService: AttendanceService?
     private var employeeService: EmployeeService?
     private var syncQueue: SyncQueue?
@@ -57,6 +180,9 @@ final class AttendanceScannerViewModel {
     private var lastScanDate: Date?
     private var isHandlingFrame = false
     private var recordedKeysToday: Set<String> = []
+    private let siteLocationGate = SiteLocationGate()
+    /// Held while PIN / geofence gates run after Confirm.
+    private var pendingSessionType: CheckType?
 
     /// Discard frames after camera start / after a completed scan (timing / stale buffer).
     private var warmupFramesRemaining = 0
@@ -80,25 +206,143 @@ final class AttendanceScannerViewModel {
     }
 
     func cancelConfirm() {
+        // SwiftUI sets alert isPresented=false after Confirm, which would otherwise
+        // wipe pendingSessionType before beginSession runs.
+        if isStartingAuthorizedSession { return }
+
         pendingConfirmType = nil
+        pendingSessionType = nil
+        isAwaitingSupervisorPIN = false
+        supervisorPINEntry = ""
+        supervisorPINError = nil
+        siteGateMessage = nil
     }
 
     func confirmPendingType() {
         guard let type = pendingConfirmType else { return }
+        isStartingAuthorizedSession = true
         pendingConfirmType = nil
+        pendingSessionType = type
+
+        if SupervisorPINSettings.isRequired {
+            isAwaitingSupervisorPIN = true
+            supervisorPINEntry = ""
+            supervisorPINError = nil
+            return
+        }
+
+        // Most common path: no GPS gate — start immediately (avoids alert-dismiss races).
+        if !SiteGeofenceSettings.isRequired {
+            pendingSessionType = nil
+            beginSession(type: type)
+            isStartingAuthorizedSession = false
+            return
+        }
+
+        Task { await startSessionAfterGuards() }
+    }
+
+    func submitSupervisorPIN() {
+        guard let type = pendingSessionType else { return }
+        if SupervisorPINSettings.verify(supervisorPINEntry) {
+            isAwaitingSupervisorPIN = false
+            supervisorPINEntry = ""
+            supervisorPINError = nil
+            isStartingAuthorizedSession = true
+            pendingSessionType = type
+            Task { await startSessionAfterGuards() }
+        } else {
+            supervisorPINError = "Incorrect supervisor PIN"
+            supervisorPINEntry = ""
+        }
+    }
+
+    func cancelSupervisorPIN() {
+        isStartingAuthorizedSession = false
+        isAwaitingSupervisorPIN = false
+        pendingSessionType = nil
+        supervisorPINEntry = ""
+        supervisorPINError = nil
+        pendingConfirmType = nil
+        statusMessage = "Choose Time In or Time Out to begin."
+    }
+
+    func dismissSiteGateMessage() {
+        siteGateMessage = nil
+    }
+
+    private func startSessionAfterGuards() async {
+        guard let type = pendingSessionType else {
+            isStartingAuthorizedSession = false
+            return
+        }
+        siteGateMessage = nil
+        statusMessage = SiteGeofenceSettings.isRequired
+            ? "Checking job-site GPS…"
+            : "Starting live check…"
+        do {
+            try await siteLocationGate.verifyInsideSiteIfRequired()
+        } catch {
+            isStartingAuthorizedSession = false
+            pendingSessionType = nil
+            siteGateMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            statusMessage = error.localizedDescription
+            return
+        }
+        pendingSessionType = nil
         beginSession(type: type)
+        isStartingAuthorizedSession = false
     }
 
     func beginSession(type: CheckType) {
         checkType = type
         isSessionActive = true
-        hardResetScanner(status: "Position your face for \(type.displayName).")
+        livenessChecker.resetForScanner()
+        depthMotionValidator.reset()
+        spoofTracker.reset()
+        antiSpoofTracker.reset()
+        sawValidDepthThisSession = false
+        isAwaitingDepthConfirm = false
+        depthConfirmStreak = 0
+        pendingPunchJPEG = nil
+        lastScanDate = nil
+        livenessChallenge = livenessChecker.challenge
+        livenessPassed = false
+        livenessHint = livenessChecker.progressHint
+        syncLivenessStepUI()
+        syncStableInstructionForLiveness()
+        guideConditionMet = false
+        hardResetScanner(status: "Follow the on-screen steps")
+        recognitionState = .liveness
+        statusMessage = stableInstruction
         warmupFramesRemaining = AppConstants.scannerWarmupFrames
+    }
+
+    private func syncLivenessStepUI() {
+        let gestureSteps = livenessChecker.totalSteps
+        // Gestures + final 3D depth confirmation.
+        livenessTotalSteps = gestureSteps + 1
+        if isAwaitingDepthConfirm {
+            livenessStepNumber = livenessTotalSteps
+            livenessStepLabel = "Step \(livenessTotalSteps) of \(livenessTotalSteps)"
+            livenessNeedsLookStraight = false
+            livenessChallenge = .confirm3D
+        } else {
+            livenessStepLabel = livenessChecker.stepLabel
+            livenessStepNumber = livenessChecker.currentStepNumber
+            livenessNeedsLookStraight = livenessChecker.needsLookStraight
+        }
     }
 
     func endSession(status: String) {
         isSessionActive = false
+        isStartingAuthorizedSession = false
         pendingConfirmType = nil
+        pendingSessionType = nil
+        isAwaitingSupervisorPIN = false
+        livenessPassed = false
+        guideConditionMet = false
         hardResetScanner(status: status)
     }
 
@@ -127,9 +371,9 @@ final class AttendanceScannerViewModel {
         reloadEmployees()
         do {
             try await cameraManager.requestAccessAndConfigure()
-            cameraManager.onFrame = { [weak self] buffer in
+            cameraManager.onFrame = { [weak self] buffer, depth in
                 Task { @MainActor in
-                    self?.handleFrame(buffer)
+                    self?.handleFrame(buffer, depthData: depth)
                 }
             }
             cameraManager.start()
@@ -164,6 +408,49 @@ final class AttendanceScannerViewModel {
         // Keep lastScanDate only for cooldown; do not reuse prior match identity.
     }
 
+    private func pauseLiveCheck(message: String) {
+        guideConditionMet = false
+        resetConsensus()
+        recognitionState = .liveness
+        setStableInstruction(message)
+        statusMessage = message
+    }
+
+    private func rejectPresentationAttack(_ message: String) {
+        livenessChecker.resetForScanner()
+        isAwaitingDepthConfirm = false
+        depthConfirmStreak = 0
+        depthMotionValidator.reset()
+        spoofTracker.reset()
+        antiSpoofTracker.reset()
+        livenessPassed = false
+        syncLivenessStepUI()
+        syncStableInstructionForLiveness()
+        setStableInstruction(message)
+        statusMessage = message
+        guideConditionMet = false
+        recognitionState = .liveness
+        resetConsensus()
+    }
+
+    /// RGB replay cues. Used during liveness, not identity matching.
+    private func looksLikeScreenReplay(pixelBuffer: CVPixelBuffer, faceBox: CGRect) -> Bool {
+        spoofTracker.observe(pixelBuffer: pixelBuffer, faceBox: faceBox, rejectThreshold: 0.58)
+    }
+
+    /// MiniFASNet Core ML — catches photo / screen / video replay.
+    private func looksLikeAISpoof(pixelBuffer: CVPixelBuffer, faceBox: CGRect) -> Bool {
+        guard CoreMLAntiSpoof.shared.isReady else { return false }
+        guard let verdict = try? CoreMLAntiSpoof.shared.classify(
+            pixelBuffer: pixelBuffer,
+            boundingBox: faceBox
+        ) else { return false }
+        return antiSpoofTracker.observe(
+            liveScore: verdict.liveScore,
+            liveThreshold: CoreMLAntiSpoof.liveThreshold
+        )
+    }
+
     private func clearRecognitionIdentity() {
         lastMatchName = nil
         lastMatchConfidence = nil
@@ -174,13 +461,31 @@ final class AttendanceScannerViewModel {
         consensusCount = 0
         consensusBestScore = 0
         consensusName = nil
+        // Keep pendingPunchJPEG across consensus frames; cleared on session restart / after save.
+    }
+
+    /// Depth gate — returns whether this frame counts. Never restarts the whole scan.
+    private func depthAllowsFrame(
+        depthData: AVDepthData?,
+        faceBox: CGRect,
+        strict: Bool = false
+    ) -> Bool {
+        // Non-TrueDepth devices cannot run 3D anti-spoof — gestures only.
+        guard cameraManager.isDepthAvailable else { return true }
+        guard let depthData else { return false }
+        let verdict = DepthFlatnessDetector.evaluate(
+            depthData: depthData,
+            faceBox: faceBox,
+            strict: strict
+        )
+        return !verdict.isFlat
     }
 
     private func recordKey(employeeId: UUID, checkType: CheckType) -> String {
         "\(employeeId.uuidString)-\(checkType.rawValue)"
     }
 
-    private func handleFrame(_ pixelBuffer: CVPixelBuffer) {
+    private func handleFrame(_ pixelBuffer: CVPixelBuffer, depthData: AVDepthData?) {
         guard isSessionActive else { return }
         guard !isHandlingFrame, !isProcessing else { return }
 
@@ -209,31 +514,210 @@ final class AttendanceScannerViewModel {
         // Always clear previous identity before scoring this frame.
         clearRecognitionIdentity()
 
+        let mirrored = cameraManager.position == .front
+
         do {
+            // Copy once so liveness + matching never read a recycled camera buffer.
+            let frame = try FaceImagePreprocessor.copyPixelBuffer(pixelBuffer)
+            let face = try detectionService.primaryFace(in: frame, mirrored: mirrored)
+            faceDetected = face != nil
+
+            // 1) Liveness must pass before any identity matching.
+            if !livenessPassed {
+                if cameraManager.position != .front {
+                    pauseLiveCheck(message: "Use the front camera")
+                    return
+                }
+
+                guard let face else {
+                    depthConfirmStreak = 0
+                    if !isAwaitingDepthConfirm {
+                        _ = livenessChecker.update(
+                            hasFace: false,
+                            yaw: 0,
+                            pitch: 0,
+                            leftEyeEAR: nil,
+                            rightEyeEAR: nil,
+                            faceArea: 0,
+                            mirrored: mirrored
+                        )
+                        livenessChallenge = livenessChecker.challenge
+                        syncLivenessStepUI()
+                    }
+                    guideConditionMet = false
+                    recognitionState = .noFace
+                    resetConsensus()
+                    return
+                }
+
+                if looksLikeScreenReplay(pixelBuffer: frame, faceBox: face.boundingBox) {
+                    rejectPresentationAttack(
+                        spoofTracker.rejectReason ?? "Screen or video replay detected. Use a live person."
+                    )
+                    return
+                }
+
+                if looksLikeAISpoof(pixelBuffer: frame, faceBox: face.boundingBox) {
+                    rejectPresentationAttack(
+                        "AI detected a screen or photo replay. Use a live person."
+                    )
+                    return
+                }
+
+                // 3D confirm: strict TrueDepth + depth stability — blocks flat screens and scrubbed video.
+                if isAwaitingDepthConfirm {
+                    if let depthData {
+                        depthMotionValidator.observeDepthConfirm(
+                            depthData: depthData,
+                            faceBox: face.boundingBox
+                        )
+                    }
+                    if let depthData,
+                       depthAllowsFrame(
+                           depthData: depthData,
+                           faceBox: face.boundingBox,
+                           strict: true
+                       ),
+                       depthMotionValidator.depthConfirmIsStable() {
+                        depthConfirmStreak += 1
+                        sawValidDepthThisSession = true
+                        guideConditionMet = true
+                        recognitionState = .liveness
+                        if depthConfirmStreak >= depthConfirmNeeded {
+                            isAwaitingDepthConfirm = false
+                            livenessPassed = true
+                            livenessStepNumber = livenessTotalSteps
+                            livenessStepLabel = "Step \(livenessTotalSteps) of \(livenessTotalSteps)"
+                            setStableInstruction("Matching face…")
+                            statusMessage = stableInstruction
+                            resetConsensus()
+                        }
+                    } else {
+                        depthConfirmStreak = max(0, depthConfirmStreak - 1)
+                        guideConditionMet = false
+                        recognitionState = .liveness
+                    }
+                    resetConsensus()
+                    return
+                }
+
+                // Gestures: blink → turn → move closer (2D motion + stable instructions).
+                let faceArea = face.boundingBox.width * face.boundingBox.height
+                if livenessChallenge == .moveCloser, let depthData {
+                    depthMotionValidator.observeMoveCloser(
+                        faceArea: faceArea,
+                        depthData: depthData,
+                        faceBox: face.boundingBox
+                    )
+                }
+                let passed = livenessChecker.update(
+                    hasFace: true,
+                    yaw: face.yaw,
+                    pitch: face.pitch,
+                    leftEyeEAR: face.leftEyeEAR,
+                    rightEyeEAR: face.rightEyeEAR,
+                    faceArea: faceArea,
+                    mirrored: mirrored
+                )
+                livenessChallenge = livenessChecker.challenge
+                syncLivenessStepUI()
+                syncStableInstructionForLiveness()
+                guideConditionMet = livenessChecker.isConditionMet
+                recognitionState = .liveness
+                statusMessage = stableInstruction
+
+                if passed {
+                    if cameraManager.isDepthAvailable && !depthMotionValidator.passedMoveCloserDepthCheck() {
+                        rejectPresentationAttack(
+                            "Screen replay detected — physically move closer, not a video zoom."
+                        )
+                        return
+                    }
+                    isAwaitingDepthConfirm = true
+                    depthConfirmStreak = 0
+                    depthMotionValidator.resetConfirmSamples()
+                    setStableInstruction("Hold still — 3D check")
+                    statusMessage = stableInstruction
+                    syncLivenessStepUI()
+                    guideConditionMet = true
+                }
+                resetConsensus()
+                return
+            }
+
+            // 2) Identity matching — liveness + 3D already passed.
+            guard let face else {
+                faceDetected = false
+                guideConditionMet = false
+                recognitionState = .noFace
+                setStableInstruction("Center your face in the outline")
+                resetConsensus()
+                return
+            }
+
+            if let jpeg = AttendancePhotoStore.encodeFaceJPEG(
+                from: frame,
+                boundingBox: face.boundingBox
+            ) {
+                pendingPunchJPEG = jpeg
+            }
+
+            guideConditionMet = true
             reloadEmployees()
-            let match = try pipeline.process(pixelBuffer: pixelBuffer, employees: employees)
+            let match = try pipeline.process(pixelBuffer: frame, employees: employees, mirrored: mirrored)
             faceDetected = true
             handleConsensusMatch(match)
         } catch FaceRecognitionPipeline.PipelineError.noFaceDetected {
             resetConsensus()
             faceDetected = false
+            guideConditionMet = false
             recognitionState = .noFace
-            statusMessage = "No face detected"
-        } catch FaceRecognitionPipeline.PipelineError.unknownPerson {
+            setStableInstruction("Center your face in the outline")
+        } catch FaceRecognitionPipeline.PipelineError.unknownPerson(let bestSimilarity) {
+            if consensusCount > 0 {
+                resetConsensus()
+                recognitionState = .verifying
+                statusMessage = "Hold still while we match"
+                return
+            }
             resetConsensus()
             faceDetected = true
+            guideConditionMet = true
             recognitionState = .unknownPerson
-            statusMessage = "Unknown Person"
-        } catch FaceRecognitionPipeline.PipelineError.poorQuality(let message) {
+            if bestSimilarity > 0 {
+                statusMessage = String(
+                    format: "Not recognized (best %.0f%% — need %.0f%%)",
+                    bestSimilarity * 100,
+                    MatchThresholdSettings.current * 100
+                )
+            } else if employees.isEmpty {
+                statusMessage = "No enrolled faces — register first"
+            } else {
+                statusMessage = "Face not recognized"
+            }
+        } catch FaceRecognitionPipeline.PipelineError.poorQuality {
+            if consensusCount > 0 {
+                resetConsensus()
+                recognitionState = .verifying
+                statusMessage = "Hold still while we match"
+                return
+            }
             resetConsensus()
             faceDetected = true
-            recognitionState = .poorQuality
-            statusMessage = message
+            guideConditionMet = true
+            recognitionState = .unknownPerson
+            statusMessage = "Try better lighting and look at the camera"
         } catch {
+            if consensusCount > 0 {
+                resetConsensus()
+                recognitionState = .verifying
+                statusMessage = "Hold still while we match"
+                return
+            }
             resetConsensus()
+            guideConditionMet = false
             recognitionState = .unknownPerson
-            statusMessage = "Unknown Person"
-            errorMessage = error.localizedDescription
+            statusMessage = "Face not recognized"
         }
     }
 
@@ -257,10 +741,12 @@ final class AttendanceScannerViewModel {
             return
         }
 
-        // Consensus reached — now show identity and record.
+        // Consensus reached — lock immediately so the next frame cannot flash "not recognized".
         lastMatchName = match.employeeName
         lastMatchConfidence = consensusBestScore
-        recognitionState = .recognized
+        recognitionState = .verifying
+        statusMessage = "Recording \(match.employeeName)…"
+        isProcessing = true
         let confirmed = FaceMatchResult(
             employeeId: match.employeeId,
             employeeCode: match.employeeCode,
@@ -273,8 +759,11 @@ final class AttendanceScannerViewModel {
     }
 
     private func recordMatch(_ match: FaceMatchResult) async {
-        guard !isProcessing, let attendanceService else { return }
-        isProcessing = true
+        guard let attendanceService else {
+            isProcessing = false
+            endSession(status: "Choose Time In or Time Out to begin.")
+            return
+        }
         defer { isProcessing = false }
 
         let key = recordKey(employeeId: match.employeeId, checkType: checkType)
@@ -298,8 +787,10 @@ final class AttendanceScannerViewModel {
                 employeeId: match.employeeId,
                 checkType: checkType,
                 confidence: Double(match.similarity),
-                notes: "Matched pose: \(match.matchedPose.rawValue)"
+                notes: "Matched pose: \(match.matchedPose.rawValue)",
+                punchPhotoJPEG: pendingPunchJPEG
             )
+            pendingPunchJPEG = nil
             recordedKeysToday.insert(key)
             lastMatchName = match.employeeName
             lastMatchConfidence = match.similarity

@@ -30,12 +30,13 @@ struct FaceRecognitionPipeline {
 
     func process(
         pixelBuffer: CVPixelBuffer,
-        employees: [Employee]
+        employees: [Employee],
+        mirrored: Bool = true
     ) throws -> FaceMatchResult {
         // Work on a deep copy so a recycled camera buffer cannot leak prior-frame pixels.
         let frame = try FaceImagePreprocessor.copyPixelBuffer(pixelBuffer)
 
-        guard let face = try detectionService.primaryFace(in: frame) else {
+        guard let face = try detectionService.primaryFace(in: frame, mirrored: mirrored) else {
             throw PipelineError.noFaceDetected
         }
 

@@ -25,9 +25,14 @@ struct ConsTrakrTests {
         // Mirrored selfie: positive yaw = subject's left
         #expect(HeadPoseEstimator.classify(yaw: 0.5, pitch: 0) == .left)
         #expect(HeadPoseEstimator.classify(yaw: -0.5, pitch: 0) == .right)
-        #expect(HeadPoseEstimator.matches(.left, yaw: 0.12, pitch: 0.05))
-        #expect(HeadPoseEstimator.matches(.right, yaw: -0.12, pitch: 0.05))
+        #expect(HeadPoseEstimator.matches(.left, yaw: 0.16, pitch: 0.05))
+        #expect(HeadPoseEstimator.matches(.right, yaw: -0.16, pitch: 0.05))
         #expect(!HeadPoseEstimator.matches(.left, yaw: -0.2, pitch: 0))
+        // Looking straight must not satisfy Look Up.
+        #expect(!HeadPoseEstimator.matches(.up, yaw: 0, pitch: 0.05))
+        #expect(!HeadPoseEstimator.matches(.up, yaw: 0, pitch: 0.12))
+        #expect(HeadPoseEstimator.matches(.up, yaw: 0.02, pitch: 0.22))
+        #expect(HeadPoseEstimator.matches(.down, yaw: 0.02, pitch: -0.22))
     }
 
     @Test func matchThresholdIsConfigurable() {

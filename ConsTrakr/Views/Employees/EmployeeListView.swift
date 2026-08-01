@@ -9,6 +9,7 @@ import UIKit
 
 struct EmployeeListView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppTabRouter.self) private var tabRouter
     @State private var viewModel = EmployeeListViewModel()
 
     var body: some View {
@@ -55,6 +56,14 @@ struct EmployeeListView: View {
             }
             .onAppear {
                 viewModel.configure(context: modelContext)
+            }
+            .onChange(of: tabRouter.selectedTab) { _, tab in
+                if tab == .employees {
+                    viewModel.refresh()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
+                viewModel.refresh()
             }
             .refreshable {
                 viewModel.refresh()

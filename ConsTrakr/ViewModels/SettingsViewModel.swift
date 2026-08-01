@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import CoreLocation
 
 @MainActor
 @Observable
@@ -37,6 +38,40 @@ final class SettingsViewModel {
         }
     }
 
+    var supervisorPINEnabled: Bool {
+        didSet {
+            if supervisorPINEnabled && !SupervisorPINSettings.hasPIN {
+                // Don't enable until a PIN is set.
+                supervisorPINEnabled = false
+                statusMessage = "Set a supervisor PIN first."
+                return
+            }
+            SupervisorPINSettings.isEnabled = supervisorPINEnabled
+        }
+    }
+
+    var newSupervisorPIN = ""
+    var confirmSupervisorPIN = ""
+
+    var siteGeofenceEnabled: Bool {
+        didSet {
+            if siteGeofenceEnabled && !SiteGeofenceSettings.hasSiteCoordinate {
+                siteGeofenceEnabled = false
+                statusMessage = "Set the job site location first."
+                return
+            }
+            SiteGeofenceSettings.isEnabled = siteGeofenceEnabled
+        }
+    }
+
+    var siteRadiusMeters: Double {
+        didSet {
+            SiteGeofenceSettings.radiusMeters = siteRadiusMeters
+        }
+    }
+
+    private(set) var isCapturingSiteLocation = false
+
     var adminUsername = ""
     var adminPassword = ""
 
@@ -55,6 +90,9 @@ final class SettingsViewModel {
         autoSyncEnabled = UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.autoSyncEnabled) as? Bool ?? true
         matchThreshold = Double(MatchThresholdSettings.current)
         uploadRawFramesEnabled = UserDefaults.standard.bool(forKey: AppConstants.UserDefaultsKeys.uploadRawFramesEnabled)
+        supervisorPINEnabled = SupervisorPINSettings.isRequired
+        siteGeofenceEnabled = SiteGeofenceSettings.isRequired
+        siteRadiusMeters = SiteGeofenceSettings.radiusMeters
     }
 
     /// Slider range depends on whether AdaFace or the handcrafted fallback is active.
@@ -117,5 +155,93 @@ final class SettingsViewModel {
         } catch {
             statusMessage = error.localizedDescription
         }
+    }
+
+    func saveSupervisorPIN() {
+        guard newSupervisorPIN == confirmSupervisorPIN else {
+            statusMessage = "PIN confirmation does not match."
+            return
+        }
+        guard SupervisorPINSettings.setPIN(newSupervisorPIN) else {
+            statusMessage = "PIN must be 4–12 digits."
+            return
+        }
+        newSupervisorPIN = ""
+        confirmSupervisorPIN = ""
+        supervisorPINEnabled = true
+        statusMessage = "Supervisor PIN saved. Required before each punch."
+    }
+
+    func clearSupervisorPIN() {
+        SupervisorPINSettings.clearPIN()
+        supervisorPINEnabled = false
+        newSupervisorPIN = ""
+        confirmSupervisorPIN = ""
+        statusMessage = "Supervisor PIN cleared."
+    }
+
+    func useCurrentLocationAsSite() async {
+        isCapturingSiteLocation = true
+        defer { isCapturingSiteLocation = false }
+        do {
+            let location = try await Self.requestOneShotLocation()
+            SiteGeofenceSettings.setSite(
+                coordinate: location.coordinate,
+                radiusMeters: siteRadiusMeters
+            )
+            siteGeofenceEnabled = true
+            statusMessage = String(
+                format: "Job site set (%.5f, %.5f) · ±%.0fm",
+                location.coordinate.latitude,
+                location.coordinate.longitude,
+                siteRadiusMeters
+            )
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func clearSiteLocation() {
+        SiteGeofenceSettings.clearSite()
+        siteGeofenceEnabled = false
+        statusMessage = "Job site geofence cleared."
+    }
+
+    private static func requestOneShotLocation() async throws -> CLLocation {
+        final class OneShot: NSObject, CLLocationManagerDelegate, @unchecked Sendable {
+            let manager = CLLocationManager()
+            var continuation: CheckedContinuation<CLLocation, Error>?
+
+            func capture() async throws -> CLLocation {
+                try await withCheckedThrowingContinuation { continuation in
+                    self.continuation = continuation
+                    manager.delegate = self
+                    manager.desiredAccuracy = kCLLocationAccuracyBest
+                    manager.requestLocation()
+                }
+            }
+
+            func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+                guard let location = locations.last else { return }
+                continuation?.resume(returning: location)
+                continuation = nil
+            }
+
+            func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+                continuation?.resume(throwing: error)
+                continuation = nil
+            }
+        }
+
+        let shooter = OneShot()
+        let status = shooter.manager.authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else {
+            throw SiteLocationGate.GateError.permissionDenied
+        }
+        if status == .notDetermined {
+            shooter.manager.requestWhenInUseAuthorization()
+            try await Task.sleep(for: .milliseconds(600))
+        }
+        return try await shooter.capture()
     }
 }

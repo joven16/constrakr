@@ -8,6 +8,7 @@
 
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct AttendanceHistoryView: View {
     @Environment(\.modelContext) private var modelContext
@@ -38,6 +39,7 @@ struct AttendanceHistoryView: View {
             } else {
                 List(viewModel.records) { item in
                     HStack(alignment: .top, spacing: 12) {
+                        punchThumbnail(for: item.id)
                         Image(systemName: item.checkType.systemImage)
                             .font(.title3)
                             .foregroundStyle(item.checkType == .checkIn ? .green : .orange)
@@ -51,6 +53,9 @@ struct AttendanceHistoryView: View {
                             Text(item.timestamp.attendanceDisplay)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
+                            Text("Confidence \(item.confidence, format: .number.precision(.fractionLength(2)))")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
                         }
                         Spacer()
                         StatusBadge(status: item.syncStatus)
@@ -105,5 +110,25 @@ struct AttendanceHistoryView: View {
             .font(.subheadline)
         }
         .padding()
+    }
+
+    @ViewBuilder
+    private func punchThumbnail(for attendanceId: UUID) -> some View {
+        if let data = AttendancePhotoStore.load(attendanceId: attendanceId),
+           let uiImage = UIImage(data: data) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.secondary.opacity(0.15))
+                .frame(width: 48, height: 48)
+                .overlay {
+                    Image(systemName: "person.crop.square")
+                        .foregroundStyle(.secondary)
+                }
+        }
     }
 }

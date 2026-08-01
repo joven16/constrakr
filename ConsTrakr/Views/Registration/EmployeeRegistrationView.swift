@@ -9,38 +9,24 @@ import UIKit
 
 struct EmployeeRegistrationView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppTabRouter.self) private var tabRouter
     @State private var viewModel = EmployeeRegistrationViewModel()
+    @State private var showRegistrationSuccessAlert = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            stepHeader
-                .padding(.horizontal)
-                .padding(.top, 8)
-
-            ScrollView {
-                VStack(spacing: 20) {
-                    switch viewModel.step {
-                    case .details:
-                        detailsStep
-                    case .faceScan:
-                        faceScanStep
-                    case .done:
-                        doneStep
-                    }
-                }
-                .padding()
+        Group {
+            switch viewModel.step {
+            case .details:
+                detailsStep
+            case .faceScan, .done:
+                faceScanStep
             }
         }
-        .background(
-            LinearGradient(
-                colors: [Color(.systemBackground), Color.indigo.opacity(0.06)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        )
-        .navigationTitle("Register")
-        .navigationBarTitleDisplayMode(.inline)
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .navigationTitle(navigationTitle)
+        .navigationBarTitleDisplayMode(viewModel.step == .details ? .large : .inline)
+        .toolbar { toolbarContent }
         .alert("Error", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
             set: { if !$0 { viewModel.errorMessage = nil } }
@@ -49,13 +35,19 @@ struct EmployeeRegistrationView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-        .alert("Success", isPresented: Binding(
-            get: { viewModel.successMessage != nil },
-            set: { if !$0 { viewModel.acknowledgeSuccessAndReset() } }
-        )) {
-            Button("OK") { viewModel.acknowledgeSuccessAndReset() }
+        .alert("Registration Complete", isPresented: $showRegistrationSuccessAlert) {
+            Button("OK") {
+                tabRouter.selectedTab = .employees
+                dismiss()
+            }
         } message: {
             Text(viewModel.successMessage ?? "Employee registered successfully.")
+        }
+        .onChange(of: viewModel.didSave) { _, saved in
+            if saved {
+                viewModel.finishRegistrationAndDismiss()
+                showRegistrationSuccessAlert = true
+            }
         }
         .onAppear {
             viewModel.configure(context: modelContext)
@@ -65,146 +57,256 @@ struct EmployeeRegistrationView: View {
         }
     }
 
-    private var stepHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                ForEach(RegistrationStep.allCases, id: \.rawValue) { step in
-                    Capsule()
-                        .fill(step.rawValue <= viewModel.stepIndex ? Color.indigo : Color.secondary.opacity(0.25))
-                        .frame(height: 4)
-                }
-            }
-            Text("Step \(viewModel.stepIndex + 1) of \(viewModel.stepCount): \(viewModel.step.title)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.bottom, 4)
-    }
+    // MARK: - Step 1: Details (Settings / Contacts style)
 
     private var detailsStep: some View {
-        VStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Employee details")
-                    .font(.title3.bold())
-                Text("Fill in the employee profile, then continue to face enrollment.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(spacing: 12) {
+        Form {
+            Section {
                 TextField("Employee Code", text: $viewModel.employeeCode)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
-                TextField("First Name", text: $viewModel.firstName)
-                TextField("Last Name", text: $viewModel.lastName)
-                TextField("Department", text: $viewModel.department)
-            }
-            .textFieldStyle(.roundedBorder)
-            .padding()
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .textContentType(.username)
 
-            Button {
-                viewModel.goToFaceScanStep()
-            } label: {
-                Label("Continue to Face Scan", systemImage: "arrow.right.circle.fill")
-                    .frame(maxWidth: .infinity)
+                TextField("First Name", text: $viewModel.firstName)
+                    .textContentType(.givenName)
+
+                TextField("Last Name", text: $viewModel.lastName)
+                    .textContentType(.familyName)
+
+                TextField("Department", text: $viewModel.department)
+                    .textContentType(.organizationName)
+            } header: {
+                Text("Employee Information")
+            } footer: {
+                Text("Enter the employee profile, then continue to face enrollment. Face data is stored encrypted on this device.")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.indigo)
-            .disabled(!viewModel.isFormValid)
+
+            Section {
+                HStack {
+                    Label("Face Scan", systemImage: "faceid")
+                    Spacer()
+                    Text("Next")
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("Step 2 captures a live face check, optional 3D depth, and five angles for offline recognition.")
+            }
         }
+        .scrollContentBackground(.hidden)
     }
+
+    // MARK: - Step 2: Face scan (fixed layout, no scroll)
 
     private var faceScanStep: some View {
-        VStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(viewModel.firstName) \(viewModel.lastName)")
-                    .font(.headline)
-                Text(viewModel.employeeCode)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        GeometryReader { geo in
+            let horizontalPad: CGFloat = 16
+            let checklistHeight: CGFloat = 40
 
-            ZStack {
-                CameraPreviewView(session: viewModel.cameraManager.session)
-                    .frame(height: 420)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            VStack(spacing: 12) {
+                challengeChecklistBar
 
-                if let cameraError = viewModel.cameraError {
-                    VStack(spacing: 8) {
-                        Image(systemName: "camera.fill")
-                            .font(.largeTitle)
-                        Text(cameraError)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.black.opacity(0.7))
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                } else {
-                    PoseGuideOverlay(
-                        pose: viewModel.currentPose,
-                        faceDetected: viewModel.faceDetected,
-                        poseMatched: viewModel.poseMatched,
-                        progress: viewModel.enrollmentProgress,
-                        capturedCount: viewModel.capturedEmbeddings.count,
-                        totalPoses: FacePose.allCases.count,
-                        statusMessage: viewModel.statusMessage
+                VStack(spacing: 4) {
+                    Text(scanStepTitle)
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+
+                    Text(scanStepSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, horizontalPad)
+
+                cameraCard
+                    .frame(
+                        width: max(0, geo.size.width - horizontalPad * 2),
+                        height: max(
+                            180,
+                            geo.size.height - checklistHeight - 72
+                        )
                     )
-                }
-            }
+                    .padding(.horizontal, horizontalPad)
 
-            if !viewModel.capturedPhotos.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(FacePose.allCases) { pose in
-                            if let data = viewModel.capturedPhotos[pose],
-                               let image = UIImage(data: data) {
-                                VStack(spacing: 4) {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 64, height: 64)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                    Text(pose.displayName)
-                                        .font(.caption2)
-                                        .lineLimit(1)
-                                }
-                            }
-                        }
+                Spacer(minLength: 0)
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+            .padding(.top, 8)
+        }
+    }
+
+    /// All enrollment steps — grey until passed, green with checkmark when done.
+    private var challengeChecklistBar: some View {
+        HStack(spacing: 8) {
+            ForEach(allChallengeItems) { item in
+                ZStack(alignment: .bottomTrailing) {
+                    Image(systemName: item.systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(item.isPassed ? .white : .secondary)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle().fill(
+                                item.isPassed
+                                    ? AnyShapeStyle(Color.green.gradient)
+                                    : AnyShapeStyle(Color(.tertiarySystemFill))
+                            )
+                        )
+
+                    if item.isPassed {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white, Color.green)
+                            .background(Circle().fill(Color(.systemGroupedBackground)))
+                            .offset(x: 4, y: 4)
                     }
                 }
+                .accessibilityLabel(item.accessibilityLabel)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 16)
+    }
 
-            HStack {
-                Button("Back") { viewModel.goBackToDetails() }
-                    .buttonStyle(.bordered)
-                    .disabled(viewModel.isSaving || viewModel.didSave)
+    private struct ChallengeChecklistItem: Identifiable {
+        let id: String
+        let systemImage: String
+        let accessibilityLabel: String
+        let isPassed: Bool
+    }
 
-                Button("Restart Scan") { viewModel.startEnrollment() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.indigo)
-                    .disabled(viewModel.isSaving || viewModel.didSave)
+    private var allChallengeItems: [ChallengeChecklistItem] {
+        var items: [ChallengeChecklistItem] = []
+
+        items.append(ChallengeChecklistItem(
+            id: "blink",
+            systemImage: "eye.fill",
+            accessibilityLabel: viewModel.scanPhase == .blink ? "Blink, not completed" : "Blink passed",
+            isPassed: viewModel.scanPhase != .blink
+        ))
+
+        if viewModel.cameraManager.isDepthAvailable {
+            items.append(ChallengeChecklistItem(
+                id: "depth",
+                systemImage: "cube.transparent.fill",
+                accessibilityLabel: viewModel.scanPhase == .poses ? "3D scan passed" : "3D scan, not completed",
+                isPassed: viewModel.scanPhase == .poses
+            ))
+        }
+
+        for pose in FacePose.allCases {
+            let passed = viewModel.capturedEmbeddings[pose] != nil
+            items.append(ChallengeChecklistItem(
+                id: pose.rawValue,
+                systemImage: pose.systemImage,
+                accessibilityLabel: passed ? "\(pose.displayName) passed" : "\(pose.displayName), not completed",
+                isPassed: passed
+            ))
+        }
+
+        return items
+    }
+
+    private var cameraCard: some View {
+        ZStack {
+            CameraPreviewView(session: viewModel.cameraManager.session)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if let cameraError = viewModel.cameraError {
+                cameraErrorOverlay(cameraError)
+            } else {
+                FaceGuideOverlay(
+                    isConditionMet: viewModel.guideConditionMet,
+                    caption: viewModel.primaryInstruction,
+                    challenge: viewModel.overlayChallenge,
+                    needsLookStraight: viewModel.livenessNeedsLookStraight,
+                    pose: viewModel.overlayPose
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(registrationBorderColor, lineWidth: 2.5)
+        }
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
+    }
+
+    // MARK: - Toolbar & helpers
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        switch viewModel.step {
+        case .details:
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Continue") {
+                    viewModel.goToFaceScanStep()
+                }
+                .fontWeight(.semibold)
+                .disabled(!viewModel.isFormValid)
+            }
+        case .faceScan, .done:
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Back") {
+                    viewModel.goBackToDetails()
+                }
+                .disabled(viewModel.isSaving || viewModel.didSave)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Restart") {
+                    viewModel.startEnrollment()
+                }
+                .disabled(viewModel.isSaving || viewModel.didSave)
             }
         }
     }
 
-    private var doneStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(.green)
-            Text(viewModel.successMessage ?? "Employee registered successfully.")
-                .font(.title3.bold())
-                .multilineTextAlignment(.center)
-            Text("Preparing the form for the next employee…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+    private var navigationTitle: String {
+        switch viewModel.step {
+        case .details: return "New Employee"
+        case .faceScan, .done: return "Face Setup"
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+    }
+
+    private var scanStepTitle: String {
+        switch viewModel.scanPhase {
+        case .blink:
+            return "Blink Slowly"
+        case .depthScan:
+            return "3D Face Scan"
+        case .poses:
+            return viewModel.currentPose.displayName
+        }
+    }
+
+    private var scanStepSubtitle: String {
+        switch viewModel.scanPhase {
+        case .blink:
+            return "Open and close both eyes to confirm you are a live person."
+        case .depthScan:
+            return "Hold still inside the outline while TrueDepth captures your face shape."
+        case .poses:
+            return viewModel.currentPose.instruction
+        }
+    }
+
+    private var registrationBorderColor: Color {
+        if viewModel.guideConditionMet { return .green }
+        if viewModel.faceDetected { return Color.accentColor }
+        return Color(.separator)
+    }
+
+    private func cameraErrorOverlay(_ message: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "camera.fill")
+                .font(.largeTitle)
+            Text(message)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.black.opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }

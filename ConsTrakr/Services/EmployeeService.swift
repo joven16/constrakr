@@ -36,6 +36,7 @@ final class EmployeeService {
         lastName: String,
         department: String,
         embeddings: [FaceEmbedding],
+        faceDepthSignature: FaceDepthSignature? = nil,
         enrollmentPhotos: [FacePose: Data] = [:]
     ) throws -> Employee {
         let code = employeeCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -69,6 +70,7 @@ final class EmployeeService {
             lastName: last,
             department: dept.isEmpty ? "General" : dept,
             faceEmbeddings: embeddings,
+            faceDepthSignature: faceDepthSignature,
             syncStatus: .pending
         )
         try repository.save(employee)

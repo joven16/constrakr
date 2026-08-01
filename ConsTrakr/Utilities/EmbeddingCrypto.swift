@@ -52,6 +52,16 @@ enum EmbeddingCrypto {
         return try JSONDecoder().decode([FaceEmbedding].self, from: plain)
     }
 
+    static func encryptDepthSignature(_ signature: FaceDepthSignature) throws -> Data {
+        let plain = try JSONEncoder().encode(signature)
+        return try seal(plain)
+    }
+
+    static func decryptDepthSignature(_ ciphertext: Data) throws -> FaceDepthSignature {
+        let plain = try open(ciphertext)
+        return try JSONDecoder().decode(FaceDepthSignature.self, from: plain)
+    }
+
     // MARK: - AES-GCM
 
     private static func seal(_ plain: Data) throws -> Data {

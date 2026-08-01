@@ -20,7 +20,8 @@ final class AttendanceService {
         employeeId: UUID,
         checkType: CheckType,
         confidence: Double,
-        notes: String? = nil
+        notes: String? = nil,
+        punchPhotoJPEG: Data? = nil
     ) throws -> Attendance {
         if try repository.hasRecordedToday(employeeId: employeeId, checkType: checkType) {
             throw ServiceError.alreadyRecordedToday(checkType)
@@ -40,6 +41,9 @@ final class AttendanceService {
             notes: notes
         )
         try repository.save(attendance)
+        if let punchPhotoJPEG {
+            try? AttendancePhotoStore.save(attendanceId: attendance.id, jpeg: punchPhotoJPEG)
+        }
         return attendance
     }
 
@@ -78,6 +82,7 @@ final class AttendanceService {
     /// Wipe every Time In and Time Out record from local storage.
     func clearHistory() throws {
         try repository.deleteAll()
+        AttendancePhotoStore.deleteAll()
         NotificationCenter.default.post(name: AppConstants.Notifications.attendanceHistoryDidClear, object: nil)
     }
 

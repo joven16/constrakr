@@ -15,8 +15,6 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    header
-
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         StatCard(
                             title: "Employees",
@@ -103,16 +101,6 @@ struct DashboardView: View {
             .refreshable {
                 viewModel.refresh()
             }
-        }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Workforce Attendance")
-                .font(.title2.bold())
-            Text("Face recognition check-in that works fully offline.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
         }
     }
 }
