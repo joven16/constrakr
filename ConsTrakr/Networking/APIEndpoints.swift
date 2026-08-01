@@ -15,6 +15,9 @@ enum APIEndpoint {
     // Face embeddings (encrypted payloads only)
     case getFaceEmbeddings
     case postFaceEmbedding
+    // Enrollment face JPEGs (one row per pose)
+    case getFaceEnrollmentPhotos
+    case postFaceEnrollmentPhoto
     // Attendance
     case getAttendance
     case postAttendance
@@ -28,6 +31,8 @@ enum APIEndpoint {
             return "/employees"
         case .getFaceEmbeddings, .postFaceEmbedding:
             return "/face-embeddings"
+        case .getFaceEnrollmentPhotos, .postFaceEnrollmentPhoto:
+            return "/face-enrollment-photos"
         case .getAttendance, .postAttendance:
             return "/attendance"
         case .adminLogin:
@@ -39,9 +44,9 @@ enum APIEndpoint {
 
     var method: String {
         switch self {
-        case .postEmployee, .postFaceEmbedding, .postAttendance, .adminLogin:
+        case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postAttendance, .adminLogin:
             return "POST"
-        case .getEmployees, .getFaceEmbeddings, .getAttendance, .healthCheck:
+        case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getAttendance, .healthCheck:
             return "GET"
         }
     }
@@ -58,8 +63,28 @@ struct EmployeeDTO: Codable, Identifiable {
     let firstName: String
     let lastName: String
     let department: String
+    /// AES-GCM encrypted TrueDepth signature (empty when device has no TrueDepth).
+    let encryptedDepthSignatureBase64: String?
 
     var id: UUID { localId }
+
+    init(
+        serverId: String?,
+        localId: UUID,
+        employeeCode: String,
+        firstName: String,
+        lastName: String,
+        department: String,
+        encryptedDepthSignatureBase64: String? = nil
+    ) {
+        self.serverId = serverId
+        self.localId = localId
+        self.employeeCode = employeeCode
+        self.firstName = firstName
+        self.lastName = lastName
+        self.department = department
+        self.encryptedDepthSignatureBase64 = encryptedDepthSignatureBase64
+    }
 }
 
 struct EmployeeUpsertResponse: Codable {
@@ -82,6 +107,21 @@ struct FaceEmbeddingUpsertResponse: Codable {
     let localId: UUID
 }
 
+struct FaceEnrollmentPhotoDTO: Codable {
+    let serverId: String?
+    let localId: UUID
+    let employeeServerId: String?
+    let employeeLocalId: UUID
+    let pose: String
+    /// JPEG bytes, base64 — enrollment face crop for web dashboard display.
+    let jpegBase64: String
+}
+
+struct FaceEnrollmentPhotoUpsertResponse: Codable {
+    let serverId: String
+    let localId: UUID
+}
+
 struct AttendanceDTO: Codable {
     let serverId: String?
     let localId: UUID
@@ -91,6 +131,30 @@ struct AttendanceDTO: Codable {
     let timestamp: Date
     let confidenceScore: Double
     let notes: String?
+    /// Optional punch-time face crop (JPEG, base64).
+    let punchPhotoBase64: String?
+
+    init(
+        serverId: String?,
+        localId: UUID,
+        employeeServerId: String?,
+        employeeLocalId: UUID,
+        checkType: String,
+        timestamp: Date,
+        confidenceScore: Double,
+        notes: String?,
+        punchPhotoBase64: String? = nil
+    ) {
+        self.serverId = serverId
+        self.localId = localId
+        self.employeeServerId = employeeServerId
+        self.employeeLocalId = employeeLocalId
+        self.checkType = checkType
+        self.timestamp = timestamp
+        self.confidenceScore = confidenceScore
+        self.notes = notes
+        self.punchPhotoBase64 = punchPhotoBase64
+    }
 }
 
 struct AttendanceUpsertResponse: Codable {

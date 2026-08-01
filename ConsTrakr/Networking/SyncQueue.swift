@@ -101,7 +101,7 @@ final class SyncQueue {
             refreshPendingCount()
         }
         let summary = try await syncService.restoreFromServer(context: context)
-        lastRestoreMessage = "Restored \(summary.employees) employees, \(summary.embeddings) embeddings."
+        lastRestoreMessage = "Restored \(summary.employees) employees, \(summary.embeddings) embeddings, \(summary.enrollmentPhotos) photos."
         lastSyncDate = Date()
         return summary
     }
@@ -111,9 +111,11 @@ final class SyncQueue {
         let attendance = AttendanceRepository(context: context)
         let employees = EmployeeRepository(context: context)
         let embeddings = FaceEmbeddingRepository(context: context)
+        let photos = FaceEnrollmentPhotoRepository(context: context)
         let a = (try? attendance.pendingCount()) ?? 0
         let e = (try? employees.pendingCount()) ?? 0
         let f = (try? embeddings.pendingCount()) ?? 0
-        pendingCount = a + e + f
+        let p = (try? photos.pendingCount()) ?? 0
+        pendingCount = a + e + f + p
     }
 }

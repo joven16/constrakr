@@ -115,6 +115,33 @@ actor APIService {
         return try JSONDecoder.api.decode(FaceEmbeddingUpsertResponse.self, from: data)
     }
 
+    // MARK: - Enrollment photos  GET/POST /face-enrollment-photos
+
+    func getFaceEnrollmentPhotos() async throws -> [FaceEnrollmentPhotoDTO] {
+        let request = try makeRequest(for: .getFaceEnrollmentPhotos)
+        if isPlaceholderHost { return [] }
+        let (data, response) = try await session.data(for: request)
+        try validate(response)
+        return try JSONDecoder.api.decode([FaceEnrollmentPhotoDTO].self, from: data)
+    }
+
+    func postFaceEnrollmentPhoto(_ dto: FaceEnrollmentPhotoDTO) async throws -> FaceEnrollmentPhotoUpsertResponse {
+        var request = try makeRequest(for: .postFaceEnrollmentPhoto)
+        request.httpBody = try JSONEncoder.api.encode(dto)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if isPlaceholderHost {
+            return FaceEnrollmentPhotoUpsertResponse(
+                serverId: "srv-photo-\(dto.localId.uuidString)",
+                localId: dto.localId
+            )
+        }
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response)
+        return try JSONDecoder.api.decode(FaceEnrollmentPhotoUpsertResponse.self, from: data)
+    }
+
     // MARK: - Attendance  GET/POST /attendance
 
     func getAttendance() async throws -> [AttendanceDTO] {

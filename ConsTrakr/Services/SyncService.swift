@@ -53,6 +53,7 @@ final class SyncService {
 
         try await uploadPendingEmployees(context: context)
         try await uploadPendingEmbeddings(context: context)
+        try await uploadPendingEnrollmentPhotos(context: context)
         try await uploadPendingAttendance(context: context)
     }
 
@@ -75,7 +76,10 @@ final class SyncService {
                 employeeCode: employee.employeeCode,
                 firstName: employee.firstName,
                 lastName: employee.lastName,
-                department: employee.department
+                department: employee.department,
+                encryptedDepthSignatureBase64: employee.faceDepthSignatureData.isEmpty
+                    ? nil
+                    : employee.faceDepthSignatureData.base64EncodedString()
             )
             do {
                 let response = try await api.postEmployee(dto)
@@ -88,6 +92,13 @@ final class SyncService {
                 for emb in try embRepo.fetch(forEmployeeLocalId: employee.id) {
                     emb.employeeServerId = response.serverId
                     try embRepo.update(emb)
+                }
+
+                let photoRepo = FaceEnrollmentPhotoRepository(context: context)
+                try photoRepo.ensureEntitiesForEmployee(employee)
+                for photo in try photoRepo.fetch(forEmployeeLocalId: employee.id) {
+                    photo.employeeServerId = response.serverId
+                    try photoRepo.update(photo)
                 }
             } catch {
                 employee.syncStatus = .failed
@@ -141,6 +152,61 @@ final class SyncService {
         }
     }
 
+    private func uploadPendingEnrollmentPhotos(context: ModelContext) async throws {
+        let photoRepo = FaceEnrollmentPhotoRepository(context: context)
+        let empRepo = EmployeeRepository(context: context)
+
+        // Backfill sync rows for employees registered before photo sync shipped.
+        for employee in try empRepo.fetchAll() where employee.serverId != nil {
+            try photoRepo.ensureEntitiesForEmployee(employee)
+        }
+
+        let pending = try photoRepo.fetchPendingSync()
+        for entity in pending {
+            guard entity.serverId == nil else {
+                entity.syncStatus = .synced
+                try photoRepo.update(entity)
+                continue
+            }
+
+            if entity.employeeServerId == nil,
+               let parent = try empRepo.fetch(id: entity.employeeLocalId),
+               let serverId = parent.serverId {
+                entity.employeeServerId = serverId
+            }
+            guard entity.employeeServerId != nil else { continue }
+
+            guard let jpeg = EnrollmentPhotoStore.load(
+                employeeId: entity.employeeLocalId,
+                pose: entity.pose
+            ) else {
+                continue
+            }
+
+            entity.syncStatus = .syncing
+            try photoRepo.update(entity)
+
+            let dto = FaceEnrollmentPhotoDTO(
+                serverId: nil,
+                localId: entity.id,
+                employeeServerId: entity.employeeServerId,
+                employeeLocalId: entity.employeeLocalId,
+                pose: entity.poseRaw,
+                jpegBase64: jpeg.base64EncodedString()
+            )
+            do {
+                let response = try await api.postFaceEnrollmentPhoto(dto)
+                entity.serverId = response.serverId
+                entity.syncStatus = .synced
+                try photoRepo.update(entity)
+            } catch {
+                entity.syncStatus = .failed
+                try? photoRepo.update(entity)
+                throw error
+            }
+        }
+    }
+
     private func uploadPendingAttendance(context: ModelContext) async throws {
         let attRepo = AttendanceRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
@@ -159,6 +225,7 @@ final class SyncService {
 
             try attRepo.updateSyncStatus(record, status: .syncing)
 
+            let punchJPEG = AttendancePhotoStore.load(attendanceId: record.id)
             let dto = AttendanceDTO(
                 serverId: nil,
                 localId: record.id,
@@ -167,7 +234,8 @@ final class SyncService {
                 checkType: record.checkTypeRaw,
                 timestamp: record.timestamp,
                 confidenceScore: record.confidenceScore,
-                notes: record.notes
+                notes: record.notes,
+                punchPhotoBase64: punchJPEG?.base64EncodedString()
             )
             do {
                 let response = try await api.postAttendance(dto)
@@ -189,6 +257,7 @@ final class SyncService {
 
         let empRepo = EmployeeRepository(context: context)
         let embRepo = FaceEmbeddingRepository(context: context)
+        let photoRepo = FaceEnrollmentPhotoRepository(context: context)
 
         // INTEGRATION: GET /employees
         let remoteEmployees = try await api.getEmployees()
@@ -230,6 +299,22 @@ final class SyncService {
             }
         }
 
+        // INTEGRATION: GET /face-enrollment-photos
+        let remotePhotos = try await api.getFaceEnrollmentPhotos()
+        var photoCount = 0
+        for dto in remotePhotos {
+            let localEmployeeId: UUID
+            if let serverId = dto.employeeServerId, let mapped = localIdByServerId[serverId] {
+                localEmployeeId = mapped
+            } else if let existing = try empRepo.fetch(id: dto.employeeLocalId) {
+                localEmployeeId = existing.id
+            } else {
+                continue
+            }
+            try photoRepo.upsertFromRemote(dto, employeeLocalId: localEmployeeId)
+            photoCount += 1
+        }
+
         // Optional: GET /attendance for history restore (does not block offline recognition).
         let remoteAttendance = try await api.getAttendance()
         var attendanceCount = 0
@@ -248,6 +333,10 @@ final class SyncService {
                 notes: dto.notes
             )
             context.insert(record)
+            if let punchBase64 = dto.punchPhotoBase64,
+               let jpeg = Data(base64Encoded: punchBase64) {
+                try? AttendancePhotoStore.save(attendanceId: record.id, jpeg: jpeg)
+            }
             attendanceCount += 1
         }
         try context.save()
@@ -255,6 +344,7 @@ final class SyncService {
         return RestoreSummary(
             employees: employeeCount,
             embeddings: embeddingCount,
+            enrollmentPhotos: photoCount,
             attendance: attendanceCount
         )
     }
@@ -271,6 +361,7 @@ final class SyncService {
     struct RestoreSummary {
         let employees: Int
         let embeddings: Int
+        let enrollmentPhotos: Int
         let attendance: Int
     }
 }

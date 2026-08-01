@@ -88,6 +88,22 @@ final class EmployeeService {
             entities.append(entity)
         }
         try embeddingRepository.saveAll(entities)
+
+        var photoEntities: [FaceEnrollmentPhotoEntity] = []
+        for pose in enrollmentPhotos.keys {
+            photoEntities.append(
+                FaceEnrollmentPhotoEntity(
+                    employeeLocalId: employee.id,
+                    employeeServerId: nil,
+                    pose: pose,
+                    syncStatus: .pending
+                )
+            )
+        }
+        if !photoEntities.isEmpty {
+            let photoRepository = FaceEnrollmentPhotoRepository(context: context)
+            try photoRepository.saveAll(photoEntities)
+        }
         try EnrollmentPhotoStore.saveAll(employeeId: employee.id, photos: enrollmentPhotos)
 
         return employee
@@ -105,6 +121,8 @@ final class EmployeeService {
     func delete(_ employee: Employee) throws {
         EnrollmentPhotoStore.delete(employeeId: employee.id)
         try embeddingRepository.delete(forEmployeeLocalId: employee.id)
+        let photoRepository = FaceEnrollmentPhotoRepository(context: context)
+        try photoRepository.delete(forEmployeeLocalId: employee.id)
         try repository.delete(employee)
     }
 

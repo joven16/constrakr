@@ -47,14 +47,14 @@ struct SettingsView: View {
                 if let status = viewModel.statusMessage {
                     Text(status)
                 } else {
-                    Text("Offline-first: employees, encrypted embeddings, and attendance upload when online.")
+                    Text("Offline-first: roster, encrypted face templates, enrollment photos, depth data, and attendance upload when online.")
                 }
             }
 
             Section {
                 if viewModel.isAdminAuthenticated {
                     LabeledContent("Admin", value: AdminSession.shared.username ?? "Signed in")
-                    Button("Restore Employees & Embeddings") {
+                    Button("Restore from Cloud Backup") {
                         Task { await viewModel.restoreFromServer() }
                     }
                     .disabled(viewModel.isSyncing || !viewModel.isOnline)
@@ -74,7 +74,7 @@ struct SettingsView: View {
             } header: {
                 Text("Device Restore")
             } footer: {
-                Text("After restore, face recognition continues fully offline. INTEGRATION: wire admin login to your backend.")
+                Text("If this device is replaced, sign in and restore roster, face data, and attendance from your server. Face scanning works offline after restore.")
             }
 
             Section("API") {

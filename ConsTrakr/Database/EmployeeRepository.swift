@@ -109,6 +109,7 @@ final class EmployeeRepository {
             existing.employeeCode = dto.employeeCode
             existing.syncStatus = .synced
             existing.updatedAt = Date()
+            applyRemoteDepthSignature(dto, to: existing)
             try context.save()
             return existing
         }
@@ -119,6 +120,7 @@ final class EmployeeRepository {
             existing.department = dto.department
             existing.syncStatus = .synced
             existing.updatedAt = Date()
+            applyRemoteDepthSignature(dto, to: existing)
             try context.save()
             return existing
         }
@@ -133,7 +135,15 @@ final class EmployeeRepository {
             faceEmbeddings: [],
             syncStatus: .synced
         )
+        applyRemoteDepthSignature(dto, to: employee)
         try save(employee)
         return employee
+    }
+
+    private func applyRemoteDepthSignature(_ dto: EmployeeDTO, to employee: Employee) {
+        guard let base64 = dto.encryptedDepthSignatureBase64,
+              let data = Data(base64Encoded: base64),
+              !data.isEmpty else { return }
+        employee.faceDepthSignatureData = data
     }
 }

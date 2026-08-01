@@ -11,7 +11,12 @@ import SwiftData
 
 enum DataController {
     static func makeContainer(inMemory: Bool = false) -> ModelContainer {
-        let schema = Schema([Employee.self, Attendance.self, FaceEmbeddingEntity.self])
+        let schema = Schema([
+            Employee.self,
+            Attendance.self,
+            FaceEmbeddingEntity.self,
+            FaceEnrollmentPhotoEntity.self
+        ])
         let configuration = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: inMemory

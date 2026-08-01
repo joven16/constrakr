@@ -150,7 +150,7 @@ final class SettingsViewModel {
         do {
             let summary = try await syncQueue?.restoreFromServer()
             if let summary {
-                statusMessage = "Restore complete: \(summary.employees) employees, \(summary.embeddings) embeddings, \(summary.attendance) attendance. Device works offline."
+                statusMessage = "Restore complete: \(summary.employees) employees, \(summary.embeddings) face templates, \(summary.enrollmentPhotos) photos, \(summary.attendance) attendance records. This device works offline again."
             }
         } catch {
             statusMessage = error.localizedDescription
