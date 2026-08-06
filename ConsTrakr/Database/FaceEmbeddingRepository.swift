@@ -25,15 +25,35 @@ final class FaceEmbeddingRepository {
     func fetchPendingSync() throws -> [FaceEmbeddingEntity] {
         let pending = SyncStatus.pending.rawValue
         let failed = SyncStatus.failed.rawValue
+        let syncing = SyncStatus.syncing.rawValue
         let descriptor = FetchDescriptor<FaceEmbeddingEntity>(
             predicate: #Predicate { record in
-                // Duplicate upload prevention: only pending/failed, never re-upload synced.
-                (record.syncStatusRaw == pending || record.syncStatusRaw == failed)
+                (record.syncStatusRaw == pending
+                    || record.syncStatusRaw == failed
+                    || record.syncStatusRaw == syncing)
                     && record.serverId == nil
             },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         return try context.fetch(descriptor)
+    }
+
+    func repairStuckSync() throws -> Int {
+        let syncing = SyncStatus.syncing.rawValue
+        let descriptor = FetchDescriptor<FaceEmbeddingEntity>(
+            predicate: #Predicate { record in
+                record.syncStatusRaw == syncing && record.serverId == nil
+            }
+        )
+        let stuck = try context.fetch(descriptor)
+        for entity in stuck {
+            entity.syncStatus = .pending
+            entity.updatedAt = Date()
+        }
+        if !stuck.isEmpty {
+            try context.save()
+        }
+        return stuck.count
     }
 
     func pendingCount() throws -> Int {

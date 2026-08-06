@@ -66,6 +66,9 @@ final class SyncService {
         } catch {
             // Non-fatal — upload steps also prepare per employee.
         }
+        _ = try FaceEmbeddingRepository(context: context).repairStuckSync()
+        _ = try FaceEnrollmentPhotoRepository(context: context).repairStuckSync()
+        try await reconcileMissingRemotePhotos(context: context)
 
         guard try hasPendingPushWork(context: context) else {
             summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
@@ -367,6 +370,26 @@ final class SyncService {
             }
         }
 
+        try persist(context)
+    }
+
+    private func reconcileMissingRemotePhotos(context: ModelContext) async throws {
+        let empRepo = EmployeeRepository(context: context)
+        let photoRepo = FaceEnrollmentPhotoRepository(context: context)
+
+        for employee in try empRepo.fetchAll() {
+            guard let serverId = APIDecoding.normalizedServerId(employee.serverId) else { continue }
+            guard EmployeeChildSyncPreparer.hasEnrollmentPhotosOnDisk(employee) else { continue }
+
+            let remote = try await api.getFaceEnrollmentPhotos(employeeServerId: serverId)
+            let posesWithJPEG = Set(
+                remote.filter { dto in
+                    dto.hasJpegData == true || (dto.jpegBase64?.isEmpty == false)
+                }.map(\.pose)
+            )
+            _ = try photoRepo.requeueForMissingRemoteUpload(existingRemotePosesWithJPEG: posesWithJPEG)
+            try EmployeeChildSyncPreparer.prepare(for: employee, context: context, persist: false)
+        }
         try persist(context)
     }
 

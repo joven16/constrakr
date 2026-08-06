@@ -328,6 +328,7 @@ struct FaceEnrollmentPhotoDTO: Codable {
     let pose: String
     /// JPEG bytes, base64 — required for POST; optional on GET list responses.
     let jpegBase64: String?
+    let hasJpegData: Bool?
 
     enum CodingKeys: String, CodingKey {
         case serverId = "server_id"
@@ -337,6 +338,7 @@ struct FaceEnrollmentPhotoDTO: Codable {
         case employeeLocalId = "employee_local_id"
         case pose
         case jpegBase64 = "jpeg_base64"
+        case hasJpegData = "has_jpeg_data"
     }
 
     init(
@@ -345,7 +347,8 @@ struct FaceEnrollmentPhotoDTO: Codable {
         employeeServerId: String?,
         employeeLocalId: UUID,
         pose: String,
-        jpegBase64: String?
+        jpegBase64: String?,
+        hasJpegData: Bool? = nil
     ) {
         self.serverId = serverId
         self.localId = localId
@@ -353,6 +356,7 @@ struct FaceEnrollmentPhotoDTO: Codable {
         self.employeeLocalId = employeeLocalId
         self.pose = pose
         self.jpegBase64 = jpegBase64
+        self.hasJpegData = hasJpegData
     }
 
     init(from decoder: Decoder) throws {
@@ -364,6 +368,7 @@ struct FaceEnrollmentPhotoDTO: Codable {
         employeeLocalId = try container.decode(UUID.self, forKey: .employeeLocalId)
         pose = try container.decode(String.self, forKey: .pose)
         jpegBase64 = try container.decodeIfPresent(String.self, forKey: .jpegBase64)
+        hasJpegData = try container.decodeIfPresent(Bool.self, forKey: .hasJpegData)
     }
 
     func encode(to encoder: Encoder) throws {

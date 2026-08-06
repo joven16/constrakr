@@ -25,14 +25,59 @@ final class FaceEnrollmentPhotoRepository {
     func fetchPendingSync() throws -> [FaceEnrollmentPhotoEntity] {
         let pending = SyncStatus.pending.rawValue
         let failed = SyncStatus.failed.rawValue
+        let syncing = SyncStatus.syncing.rawValue
         let descriptor = FetchDescriptor<FaceEnrollmentPhotoEntity>(
             predicate: #Predicate { record in
-                (record.syncStatusRaw == pending || record.syncStatusRaw == failed)
+                (record.syncStatusRaw == pending
+                    || record.syncStatusRaw == failed
+                    || record.syncStatusRaw == syncing)
                     && record.serverId == nil
             },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         return try context.fetch(descriptor)
+    }
+
+    /// Unstick rows left in `.syncing` after a cancelled sync — they would never retry otherwise.
+    func repairStuckSync() throws -> Int {
+        let syncing = SyncStatus.syncing.rawValue
+        let descriptor = FetchDescriptor<FaceEnrollmentPhotoEntity>(
+            predicate: #Predicate { record in
+                record.syncStatusRaw == syncing && record.serverId == nil
+            }
+        )
+        let stuck = try context.fetch(descriptor)
+        for entity in stuck {
+            entity.syncStatus = .pending
+            entity.updatedAt = Date()
+        }
+        if !stuck.isEmpty {
+            try context.save()
+        }
+        return stuck.count
+    }
+
+    /// Re-queue poses that have JPEG on device but are marked synced locally while IMS has no image.
+    func requeueForMissingRemoteUpload(existingRemotePosesWithJPEG: Set<String>) throws -> Int {
+        let synced = SyncStatus.synced.rawValue
+        let descriptor = FetchDescriptor<FaceEnrollmentPhotoEntity>(
+            predicate: #Predicate { $0.syncStatusRaw == synced }
+        )
+        var reset = 0
+        for entity in try context.fetch(descriptor) {
+            guard existingRemotePosesWithJPEG.contains(entity.poseRaw) == false else { continue }
+            guard EnrollmentPhotoStore.load(employeeId: entity.employeeLocalId, pose: entity.pose) != nil else {
+                continue
+            }
+            entity.serverId = nil
+            entity.syncStatus = .pending
+            entity.updatedAt = Date()
+            reset += 1
+        }
+        if reset > 0 {
+            try context.save()
+        }
+        return reset
     }
 
     func pendingCount() throws -> Int {
