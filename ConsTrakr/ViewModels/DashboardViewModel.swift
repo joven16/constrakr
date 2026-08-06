@@ -64,9 +64,4 @@ final class DashboardViewModel {
             errorMessage = error.localizedDescription
         }
     }
-
-    func syncNow() async {
-        await syncQueue?.syncNow()
-        refresh()
-    }
 }

@@ -13,14 +13,15 @@ enum APIEndpoint {
     case getEmployees
     case postEmployee
     case putEmployee(String)
+    case deleteEmployee(String)
     // Face embeddings (encrypted payloads only)
     case getFaceEmbeddings(employeeServerId: String?)
     case postFaceEmbedding
     // Enrollment face JPEGs (one row per pose)
-    case getFaceEnrollmentPhotos(employeeServerId: String?)
+    case getFaceEnrollmentPhotos(employeeServerId: String?, includeMedia: Bool)
     case postFaceEnrollmentPhoto
     // Attendance
-    case getAttendance(employeeServerId: String?, startDate: Date?, endDate: Date?)
+    case getAttendance(employeeServerId: String?, startDate: Date?, endDate: Date?, includeMedia: Bool)
     case postAttendance
     // Auth / health (restore gate)
     case adminLogin
@@ -32,7 +33,7 @@ enum APIEndpoint {
         switch self {
         case .getEmployees, .postEmployee:
             return "\(Self.root)/employees"
-        case .putEmployee(let serverId):
+        case .putEmployee(let serverId), .deleteEmployee(let serverId):
             return "\(Self.root)/employees/\(serverId)"
         case .getFaceEmbeddings, .postFaceEmbedding:
             return "\(Self.root)/face-embeddings"
@@ -52,10 +53,16 @@ enum APIEndpoint {
         case .getFaceEmbeddings(let employeeServerId):
             guard let employeeServerId else { return [] }
             return [URLQueryItem(name: "employee_server_id", value: employeeServerId)]
-        case .getFaceEnrollmentPhotos(let employeeServerId):
-            guard let employeeServerId else { return [] }
-            return [URLQueryItem(name: "employee_server_id", value: employeeServerId)]
-        case .getAttendance(let employeeServerId, let startDate, let endDate):
+        case .getFaceEnrollmentPhotos(let employeeServerId, let includeMedia):
+            var items: [URLQueryItem] = []
+            if let employeeServerId {
+                items.append(URLQueryItem(name: "employee_server_id", value: employeeServerId))
+            }
+            if includeMedia {
+                items.append(URLQueryItem(name: "include_media", value: "1"))
+            }
+            return items
+        case .getAttendance(let employeeServerId, let startDate, let endDate, let includeMedia):
             var items: [URLQueryItem] = []
             if let employeeServerId {
                 items.append(URLQueryItem(name: "employee_server_id", value: employeeServerId))
@@ -65,6 +72,9 @@ enum APIEndpoint {
             }
             if let endDate {
                 items.append(URLQueryItem(name: "end_date", value: Self.dateQueryString(endDate)))
+            }
+            if includeMedia {
+                items.append(URLQueryItem(name: "include_media", value: "1"))
             }
             return items
         default:
@@ -94,6 +104,8 @@ enum APIEndpoint {
             return "POST"
         case .putEmployee:
             return "PUT"
+        case .deleteEmployee:
+            return "DELETE"
         case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getAttendance, .healthCheck:
             return "GET"
         }

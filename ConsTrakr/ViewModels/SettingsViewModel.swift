@@ -24,8 +24,19 @@ final class SettingsViewModel {
             UserDefaults.standard.set(autoSyncEnabled, forKey: AppConstants.UserDefaultsKeys.autoSyncEnabled)
             if autoSyncEnabled {
                 syncQueue?.startAutoSync()
+                BackgroundSyncScheduler.scheduleNextSync()
             } else {
                 syncQueue?.stopAutoSync()
+            }
+        }
+    }
+
+    var syncIntervalMinutes: Int {
+        didSet {
+            SyncSettings.intervalMinutes = syncIntervalMinutes
+            if autoSyncEnabled {
+                syncQueue?.startAutoSync()
+                BackgroundSyncScheduler.scheduleNextSync()
             }
         }
     }
@@ -42,6 +53,30 @@ final class SettingsViewModel {
             UserDefaults.standard.set(uploadRawFramesEnabled, forKey: AppConstants.UserDefaultsKeys.uploadRawFramesEnabled)
         }
     }
+
+    var faceScanCenterEnabled = true {
+        didSet { applyFaceScanStep(.closeUp, enabled: faceScanCenterEnabled) }
+    }
+
+    var faceScanLeftEnabled = true {
+        didSet { applyFaceScanStep(.lookLeft, enabled: faceScanLeftEnabled) }
+    }
+
+    var faceScanRightEnabled = true {
+        didSet { applyFaceScanStep(.lookRight, enabled: faceScanRightEnabled) }
+    }
+
+    var faceScanUpEnabled = true {
+        didSet { applyFaceScanStep(.lookUp, enabled: faceScanUpEnabled) }
+    }
+
+    var faceScanDownEnabled = true {
+        didSet { applyFaceScanStep(.lookDown, enabled: faceScanDownEnabled) }
+    }
+
+    private(set) var faceScanSettingsMessage: String?
+    private(set) var faceScanLevel: FaceScanSettings.Level?
+    private var isApplyingFaceScanBatch = false
 
     var supervisorPINEnabled: Bool {
         didSet {
@@ -93,11 +128,13 @@ final class SettingsViewModel {
         apiBaseURL = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiBaseURL)
             ?? AppConstants.apiBaseURL
         autoSyncEnabled = UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.autoSyncEnabled) as? Bool ?? true
+        syncIntervalMinutes = SyncSettings.intervalMinutes
         matchThreshold = Double(MatchThresholdSettings.current)
         uploadRawFramesEnabled = UserDefaults.standard.bool(forKey: AppConstants.UserDefaultsKeys.uploadRawFramesEnabled)
         supervisorPINEnabled = SupervisorPINSettings.isRequired
         siteGeofenceEnabled = SiteGeofenceSettings.isRequired
         siteRadiusMeters = SiteGeofenceSettings.radiusMeters
+        reloadFaceScanPoseSettings()
     }
 
     /// Slider range depends on whether AdaFace or the handcrafted fallback is active.
@@ -120,24 +157,48 @@ final class SettingsViewModel {
         lastSyncDate = syncQueue?.lastSyncDate
         isSyncing = syncQueue?.isSyncing ?? false
         isOnline = NetworkMonitor.shared.isConnected
-        isAdminAuthenticated = AdminSession.shared.isAuthenticated
         if adminUsername.isEmpty, let saved = SyncAuthStore.loadUsername() {
             adminUsername = saved
         }
-        statusMessage = syncQueue?.lastError ?? syncQueue?.lastRestoreMessage
+        reloadFaceScanPoseSettings()
+        statusMessage = resolvedSyncStatusMessage()
     }
 
-    func syncNow() async {
-        isSyncing = true
-        await syncQueue?.syncNow()
-        refresh()
-        if let err = syncQueue?.lastError, !err.isEmpty {
-            statusMessage = err
-        } else if let summary = syncQueue?.lastPushSummary {
-            statusMessage = summary.successMessage
-        } else if syncQueue?.lastError == nil {
-            statusMessage = "Sync completed."
+    private func resolvedSyncStatusMessage() -> String? {
+        if let restore = syncQueue?.lastRestoreMessage, !restore.isEmpty {
+            return restore
         }
+        guard let error = syncQueue?.lastError, !error.isEmpty else { return nil }
+        if isOnline && NetworkError.isOfflineMessage(error) {
+            return nil
+        }
+        return error
+    }
+
+    private func reloadFaceScanPoseSettings() {
+        isApplyingFaceScanBatch = true
+        faceScanCenterEnabled = FaceScanSettings.isStepEnabled(.closeUp)
+        faceScanLeftEnabled = FaceScanSettings.isStepEnabled(.lookLeft)
+        faceScanRightEnabled = FaceScanSettings.isStepEnabled(.lookRight)
+        faceScanUpEnabled = FaceScanSettings.isStepEnabled(.lookUp)
+        faceScanDownEnabled = FaceScanSettings.isStepEnabled(.lookDown)
+        faceScanLevel = FaceScanSettings.matchingLevel()
+        isApplyingFaceScanBatch = false
+    }
+
+    func selectFaceScanLevel(_ level: FaceScanSettings.Level) {
+        isApplyingFaceScanBatch = true
+        FaceScanSettings.applyLevel(level)
+        reloadFaceScanPoseSettings()
+        faceScanSettingsMessage = nil
+    }
+
+    private func applyFaceScanStep(_ step: FaceScanSettings.Step, enabled: Bool) {
+        guard !isApplyingFaceScanBatch else { return }
+        guard FaceScanSettings.isStepEnabled(step) != enabled else { return }
+        FaceScanSettings.setStepEnabled(step, enabled)
+        faceScanSettingsMessage = nil
+        faceScanLevel = FaceScanSettings.matchingLevel()
     }
 
     func testAPIConnection() async {
@@ -182,7 +243,7 @@ final class SettingsViewModel {
         do {
             let summary = try await syncQueue?.restoreFromServer()
             if let summary {
-                statusMessage = "Restore complete: \(summary.employees) employees, \(summary.embeddings) face templates, \(summary.enrollmentPhotos) photos, \(summary.attendance) attendance records. This device works offline again."
+                statusMessage = "Restore complete: \(summary.successMessage) This device works offline again."
             }
         } catch {
             statusMessage = error.localizedDescription

@@ -2,7 +2,9 @@
 //  BackgroundSyncScheduler.swift
 //  ConsTrakr
 //
-//  Foreground timer (5 min) + BGAppRefresh + flush when app backgrounds.
+//  Foreground timer (user interval) + BGAppRefresh on the same schedule.
+//  Does not sync on app resume or when leaving the app — only on the timer,
+//  manual Sync Now, and iOS background refresh.
 //
 
 import BackgroundTasks
@@ -29,44 +31,15 @@ enum BackgroundSyncScheduler {
         }
     }
 
-    /// Ask iOS to wake the app for sync (~1 min earliest; iOS may defer on battery).
-    static func scheduleNextSync(after seconds: TimeInterval = AppConstants.syncIntervalSeconds) {
+    /// Ask iOS to wake the app for sync (earliest = user interval; iOS may defer on battery).
+    static func scheduleNextSync(after seconds: TimeInterval? = nil) {
+        let interval = seconds ?? SyncSettings.intervalSeconds
         let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: max(60, seconds))
+        request.earliestBeginDate = Date(timeIntervalSinceNow: max(60, interval))
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
             // Simulator / restricted background — foreground timer still runs.
-        }
-    }
-
-    /// Run sync when returning to foreground.
-    static func syncOnBecomeActive() {
-        guard let syncQueue else { return }
-        scheduleNextSync()
-        Task {
-            await syncQueue.syncIfNeeded()
-        }
-    }
-
-    /// Best-effort upload when user leaves the app (~30s background time).
-    static func syncBeforeBackground() {
-        guard let syncQueue else { return }
-        scheduleNextSync()
-
-        var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "ConsTrakrSync") {
-            UIApplication.shared.endBackgroundTask(backgroundTaskID)
-            backgroundTaskID = .invalid
-        }
-
-        guard backgroundTaskID != .invalid else { return }
-
-        Task {
-            await syncQueue.syncIfNeeded()
-            if backgroundTaskID != .invalid {
-                UIApplication.shared.endBackgroundTask(backgroundTaskID)
-            }
         }
     }
 

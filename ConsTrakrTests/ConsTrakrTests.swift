@@ -3,9 +3,11 @@
 //  ConsTrakrTests
 //
 
+import Foundation
 import Testing
 @testable import ConsTrakr
 
+@Suite(.serialized)
 struct ConsTrakrTests {
 
     @Test func faceEmbeddingCosineSimilarityIdentical() {
@@ -18,6 +20,51 @@ struct ConsTrakrTests {
         #expect(FacePose.allCases.count == 5)
         #expect(FacePose.center.next == .left)
         #expect(FacePose.down.next == nil)
+    }
+
+    @Test func faceScanSettingsBuildScannerSteps() {
+        defer { FaceScanSettings.applyLevel(.full) }
+
+        FaceScanSettings.applyLevel(.basic)
+        #expect(FaceScanSettings.scannerLivenessSteps() == [.blink, .moveCloser])
+
+        FaceScanSettings.applyLevel(.standard)
+        #expect(FaceScanSettings.scannerLivenessSteps() == [.blink, .turnLeft, .turnRight, .moveCloser])
+
+        FaceScanSettings.applyLevel(.full)
+        #expect(
+            FaceScanSettings.scannerLivenessSteps()
+                == [.blink, .turnLeft, .turnRight, .nodUp, .nodDown, .moveCloser]
+        )
+
+        FaceScanSettings.setStepEnabled(.lookDown, false)
+        #expect(FaceScanSettings.scannerLivenessSteps().contains(.nodDown) == false)
+        #expect(FaceScanSettings.isCustomConfiguration)
+
+        FaceScanSettings.applyLevel(.standard)
+        FaceScanSettings.setStepEnabled(.closeUp, false)
+        #expect(FaceScanSettings.scannerLivenessSteps() == [.blink, .turnLeft, .turnRight])
+        #expect(FaceScanSettings.scannerReadyStepNames() == ["Blink", "Look left", "Look right", "3D"])
+    }
+
+    @Test func faceScanReadySummaryUsesSettings() {
+        defer { FaceScanSettings.applyLevel(.full) }
+
+        FaceScanSettings.applyLevel(.standard)
+        #expect(FaceScanSettings.scannerReadySummary() == "Standard · Blink · Look left · Look right · Close-up · 3D")
+    }
+
+    @Test func faceScanLevelPresets() {
+        defer { FaceScanSettings.applyLevel(.full) }
+
+        FaceScanSettings.applyLevel(.basic)
+        #expect(FaceScanSettings.matchingLevel() == .basic)
+
+        FaceScanSettings.applyLevel(.standard)
+        #expect(FaceScanSettings.matchingLevel() == .standard)
+
+        FaceScanSettings.applyLevel(.full)
+        #expect(FaceScanSettings.matchingLevel() == .full)
     }
 
     @Test func headPoseClassifierCenter() {

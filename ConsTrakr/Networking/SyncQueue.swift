@@ -27,6 +27,7 @@ final class SyncQueue {
     private var context: ModelContext?
     private var syncTask: Task<Void, Never>?
     private var historyClearObserver: NSObjectProtocol?
+    private var networkObserver: NSObjectProtocol?
 
     init(api: APIService = .shared) {
         self.syncService = SyncService(api: api)
@@ -51,6 +52,34 @@ final class SyncQueue {
                 }
             }
         }
+
+        if networkObserver == nil {
+            networkObserver = NotificationCenter.default.addObserver(
+                forName: AppConstants.Notifications.networkConnectivityDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.handleNetworkConnectivityChange()
+                }
+            }
+        }
+
+        if NetworkMonitor.shared.isConnected {
+            clearStaleOfflineError()
+        }
+    }
+
+    private func handleNetworkConnectivityChange() {
+        if NetworkMonitor.shared.isConnected {
+            clearStaleOfflineError()
+        }
+    }
+
+    private func clearStaleOfflineError() {
+        if NetworkError.isOfflineMessage(lastError) {
+            lastError = nil
+        }
     }
 
     func startAutoSync() {
@@ -59,7 +88,7 @@ final class SyncQueue {
         syncTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.syncIfNeeded()
-                try? await Task.sleep(for: .seconds(AppConstants.syncIntervalSeconds))
+                try? await Task.sleep(for: .seconds(SyncSettings.intervalSeconds))
             }
         }
     }
@@ -76,6 +105,7 @@ final class SyncQueue {
             lastError = NetworkError.offline.localizedDescription
             return
         }
+        clearStaleOfflineError()
         await syncNow()
     }
 
@@ -148,7 +178,7 @@ final class SyncQueue {
             refreshPendingCount()
         }
         let summary = try await syncService.restoreFromServer(context: context)
-        lastRestoreMessage = "Restored \(summary.employees) employees, \(summary.embeddings) embeddings, \(summary.enrollmentPhotos) photos."
+        lastRestoreMessage = summary.successMessage
         lastSyncDate = Date()
         lastSyncAttemptDate = Date()
         return summary

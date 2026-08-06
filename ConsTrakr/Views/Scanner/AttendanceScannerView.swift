@@ -256,6 +256,7 @@ struct AttendanceScannerView: View {
             case .blink: return "Step \(step) — Blink"
             case .turnLeft: return "Step \(step) — Look left"
             case .turnRight: return "Step \(step) — Look right"
+            case .nodUp: return "Step \(step) — Look up"
             case .nodDown: return "Step \(step) — Look down"
             case .moveCloser: return "Step \(step) — Move closer"
             case .confirm3D: return "Step \(step) — 3D check"

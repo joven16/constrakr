@@ -22,7 +22,7 @@ struct CloudStatusBadge: View {
     let status: EmployeeCloudStatus
 
     var body: some View {
-        Text(status.rawValue)
+        Text(status.displayName)
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

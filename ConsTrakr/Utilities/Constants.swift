@@ -28,16 +28,17 @@ enum AppConstants {
     static let scannerCooldown: TimeInterval = 3.0
     static let scannerWarmupFrames: Int = 3
     static let scannerConsensusFrames: Int = 2
-    static let syncIntervalSeconds: TimeInterval = 300
-    static let syncIntervalLabel = "5 minutes"
     static let registrationResetDelay: TimeInterval = 2.5
 
     enum UserDefaultsKeys {
         static let apiBaseURL = "settings.apiBaseURL"
         static let autoSyncEnabled = "settings.autoSyncEnabled"
+        static let syncIntervalMinutes = "settings.syncIntervalMinutes"
         static let matchThreshold = "settings.matchThreshold"
         static let hasSeededMockData = "app.hasSeededMockData"
         static let uploadRawFramesEnabled = "settings.uploadRawFramesEnabled"
+        static let faceScanPosePrefix = "settings.faceScan.pose"
+        static let faceScanStepPrefix = "settings.faceScan.step"
         static let thresholdMigratedForAdaFace = "settings.thresholdMigratedForAdaFace"
         static let thresholdHardenedLookalike = "settings.thresholdHardenedLookalike"
         static let thresholdRecognitionRetune = "settings.thresholdRecognitionRetune"
@@ -47,10 +48,12 @@ enum AppConstants {
         static let siteLatitude = "settings.siteLatitude"
         static let siteLongitude = "settings.siteLongitude"
         static let siteRadiusMeters = "settings.siteRadiusMeters"
+        static let pendingEmployeeDeletions = "sync.pendingEmployeeDeletions"
     }
 
     enum Notifications {
         static let attendanceHistoryDidClear = Notification.Name("constrakr.attendanceHistoryDidClear")
         static let employeesDidChange = Notification.Name("constrakr.employeesDidChange")
+        static let networkConnectivityDidChange = Notification.Name("constrakr.networkConnectivityDidChange")
     }
 }

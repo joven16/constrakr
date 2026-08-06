@@ -13,13 +13,12 @@ struct DTRView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncQueue.self) private var syncQueue
     @State private var viewModel = DTRViewModel()
-    @State private var showSyncAlert = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 datePicker
-                syncBar
+                syncStatusBar
                 columnHeader
                 if viewModel.rows.isEmpty {
                     ContentUnavailableView(
@@ -59,24 +58,13 @@ struct DTRView: View {
             }
             .navigationTitle("DTR")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await runSync(showAlert: true) }
-                    } label: {
-                        if viewModel.isSyncing {
-                            ProgressView()
-                        } else {
-                            Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                    }
-                    .disabled(viewModel.isSyncing)
-                }
-            }
             .onAppear {
                 viewModel.configure(context: modelContext, syncQueue: syncQueue)
             }
             .onChange(of: syncQueue.pendingCount) { _, _ in
+                viewModel.refresh()
+            }
+            .onChange(of: syncQueue.lastSyncDate) { _, _ in
                 viewModel.refresh()
             }
             .onChange(of: viewModel.selectedDate) { _, _ in
@@ -86,24 +74,12 @@ struct DTRView: View {
                 viewModel.refresh()
             }
             .refreshable {
-                await runSync(showAlert: false)
-            }
-            .alert("Sync", isPresented: $showSyncAlert) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(viewModel.syncStatusMessage ?? "")
+                viewModel.refresh()
             }
         }
     }
 
-    private func runSync(showAlert: Bool) async {
-        await viewModel.syncNow()
-        if showAlert {
-            showSyncAlert = true
-        }
-    }
-
-    private var syncBar: some View {
+    private var syncStatusBar: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
@@ -113,38 +89,16 @@ struct DTRView: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(viewModel.isOnline ? .green : .secondary)
                 }
-                if let report = viewModel.cloudReport {
-                    Text("Employees: \(report.confirmedOnIMS)/\(report.localTotal) on IMS")
-                        .font(.caption2)
-                        .foregroundStyle(report.confirmedOnIMS == report.localTotal ? .green : .orange)
-                    Text("Checked: \(report.checkedAt.attendanceDisplay)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                } else if let last = viewModel.lastSyncDate {
+                if let last = viewModel.lastSyncDate {
                     Text("Last sync: \(last.attendanceDisplay)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                } else {
-                    Text("Uploads employees, face data, and DTR to IMS")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
+                Text("Upload DTR and other pending data from the Employees tab → Sync.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
-            Button {
-                Task { await runSync(showAlert: true) }
-            } label: {
-                if viewModel.isSyncing {
-                    ProgressView()
-                        .frame(width: 44)
-                } else {
-                    Text("Sync Now")
-                        .font(.subheadline.weight(.semibold))
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.cyan)
-            .disabled(viewModel.isSyncing)
         }
         .padding(.horizontal)
         .padding(.bottom, 8)

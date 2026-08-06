@@ -206,6 +206,18 @@ actor APIService {
         return try APIDecoding.decodeEmployeeUpsert(from: data, expectedLocalId: dto.localId)
     }
 
+    func deleteEmployee(serverId: String) async throws {
+        try rejectIfUnconfigured()
+        let normalized = serverId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw NetworkError.invalidURL
+        }
+        let request = try makeRequest(for: .deleteEmployee(normalized))
+        if isDemoHost { return }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+    }
+
     private func recoverEmployeeUpsert(localId: UUID, employeeCode: String) async throws -> EmployeeUpsertResponse? {
         let byLocal = try await getEmployees(localId: localId)
         if let match = byLocal.first,
@@ -263,9 +275,15 @@ actor APIService {
 
     // MARK: - Enrollment photos
 
-    func getFaceEnrollmentPhotos(employeeServerId: String? = nil) async throws -> [FaceEnrollmentPhotoDTO] {
+    func getFaceEnrollmentPhotos(
+        employeeServerId: String? = nil,
+        includeMedia: Bool = false
+    ) async throws -> [FaceEnrollmentPhotoDTO] {
         try rejectIfUnconfigured()
-        let request = try makeRequest(for: .getFaceEnrollmentPhotos(employeeServerId: employeeServerId))
+        var request = try makeRequest(
+            for: .getFaceEnrollmentPhotos(employeeServerId: employeeServerId, includeMedia: includeMedia)
+        )
+        if includeMedia { request.timeoutInterval = 300 }
         if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
@@ -308,16 +326,19 @@ actor APIService {
     func getAttendance(
         employeeServerId: String? = nil,
         startDate: Date? = nil,
-        endDate: Date? = nil
+        endDate: Date? = nil,
+        includeMedia: Bool = false
     ) async throws -> [AttendanceDTO] {
         try rejectIfUnconfigured()
-        let request = try makeRequest(
+        var request = try makeRequest(
             for: .getAttendance(
                 employeeServerId: employeeServerId,
                 startDate: startDate,
-                endDate: endDate
+                endDate: endDate,
+                includeMedia: includeMedia
             )
         )
+        if includeMedia { request.timeoutInterval = 300 }
         if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)

@@ -139,6 +139,9 @@ struct FaceGuideOverlay: View {
             case .turnRight:
                 bigArrow("arrowshape.right.fill", size: arrowSize, color: color)
                     .position(x: midX + sideGap, y: midY)
+            case .nodUp:
+                bigArrow("arrowshape.up.fill", size: arrowSize, color: color)
+                    .position(x: midX, y: midY - verticalGap * 0.85)
             case .nodDown:
                 bigArrow("arrowshape.down.fill", size: arrowSize, color: color)
                     .position(x: midX, y: midY + verticalGap * 0.85)

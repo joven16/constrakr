@@ -17,7 +17,7 @@ enum NetworkError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .offline:
-            return "No internet connection. Records will sync later."
+            return Self.offlineMessage
         case .invalidURL:
             return "Invalid API URL."
         case .invalidResponse:
@@ -31,5 +31,12 @@ enum NetworkError: LocalizedError {
         case .encodingFailed:
             return "Failed to encode request body."
         }
+    }
+
+    static let offlineMessage = "No internet connection. Records will sync later."
+
+    static func isOfflineMessage(_ message: String?) -> Bool {
+        guard let message else { return false }
+        return message == offlineMessage
     }
 }

@@ -106,8 +106,19 @@ final class EmployeeListViewModel {
         cloudReport = report
     }
 
-    func delete(_ employee: Employee) {
+    /// Refresh IMS badges when signed in — avoids stale "Not checked" on every row.
+    func checkCloudIfNeeded() async {
+        guard cloudReport == nil || cloudReport?.statusNote != nil else { return }
+        guard !isCheckingCloud else { return }
+        await checkCloudOnly()
+    }
+
+    func delete(_ employee: Employee) async {
         guard let employeeService else { return }
+        if let serverId = APIDecoding.normalizedServerId(employee.serverId) {
+            PendingEmployeeDeletionStore.enqueue(serverId: serverId)
+            await syncQueue?.service.processPendingEmployeeDeletions()
+        }
         do {
             try employeeService.delete(employee)
             refresh()

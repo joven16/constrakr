@@ -46,11 +46,11 @@ struct DashboardView: View {
                         Text("Recent Attendance")
                             .font(.headline)
                         Spacer()
-                        Button("Sync") {
-                            Task { await viewModel.syncNow() }
+                        if viewModel.pendingSyncCount > 0 {
+                            Text("\(viewModel.pendingSyncCount) pending · Sync on Employees")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.cyan)
                     }
 
                     if viewModel.recentAttendance.isEmpty {

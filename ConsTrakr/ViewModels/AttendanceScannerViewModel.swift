@@ -125,10 +125,10 @@ final class AttendanceScannerViewModel {
 
     var secondaryInstruction: String? {
         if !isSessionActive {
-            var parts: [String] = ["Blink → turn → closer → 3D"]
-            if SupervisorPINSettings.isRequired { parts.append("supervisor PIN on") }
-            if SiteGeofenceSettings.isRequired { parts.append("on-site GPS on") }
-            return parts.joined(separator: " · ")
+            var extras: [String] = []
+            if SupervisorPINSettings.isRequired { extras.append("supervisor PIN on") }
+            if SiteGeofenceSettings.isRequired { extras.append("on-site GPS on") }
+            return FaceScanSettings.scannerReadySummary(extraParts: extras)
         }
         if !livenessPassed {
             return livenessStepLabel

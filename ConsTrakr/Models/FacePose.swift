@@ -46,8 +46,13 @@ enum FacePose: String, Codable, CaseIterable, Identifiable {
     }
 
     var next: FacePose? {
-        let all = FacePose.allCases
-        guard let index = all.firstIndex(of: self), index + 1 < all.count else { return nil }
-        return all[index + 1]
+        next(in: Self.enrollmentOrder)
+    }
+
+    static let enrollmentOrder: [FacePose] = [.center, .left, .right, .up, .down]
+
+    func next(in poses: [FacePose]) -> FacePose? {
+        guard let index = poses.firstIndex(of: self), index + 1 < poses.count else { return nil }
+        return poses[index + 1]
     }
 }

@@ -20,6 +20,14 @@ enum EmployeeCloudStatus: String {
         case .notChecked: return "secondary"
         }
     }
+
+    var displayName: String {
+        switch self {
+        case .onIMS: return "On IMS"
+        case .needsUpload: return "Not on IMS"
+        case .notChecked: return "Not checked"
+        }
+    }
 }
 
 struct EmployeeSyncStatusItem: Identifiable {
@@ -40,7 +48,7 @@ struct EmployeeSyncStatusItem: Identifiable {
         case .needsUpload:
             return "Local \(localUpdatedAt.attendanceDisplay)"
         case .notChecked:
-            return "Not checked"
+            return "Tap Sync or Check IMS"
         }
     }
 }

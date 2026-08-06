@@ -31,23 +31,26 @@ struct SettingsView: View {
                 if let last = viewModel.lastSyncDate {
                     LabeledContent("Last Sync", value: last.attendanceDisplay)
                 }
-                Button {
-                    Task { await viewModel.syncNow() }
-                } label: {
-                    if viewModel.isSyncing {
+                if viewModel.isSyncing {
+                    LabeledContent("Sync") {
                         ProgressView()
-                    } else {
-                        Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
                     }
                 }
-                .disabled(viewModel.isSyncing)
+                Toggle("Auto Sync", isOn: $viewModel.autoSyncEnabled)
+                if viewModel.autoSyncEnabled {
+                    Stepper(value: $viewModel.syncIntervalMinutes, in: SyncSettings.minIntervalMinutes...SyncSettings.maxIntervalMinutes) {
+                        Text("Every \(viewModel.syncIntervalMinutes) min")
+                    }
+                }
             } header: {
                 Text("Sync")
             } footer: {
                 if let status = viewModel.statusMessage {
                     Text(status)
+                } else if viewModel.autoSyncEnabled {
+                    Text("Manual sync is on the Employees tab. Auto sync runs every \(SyncSettings.intervalLabel) while the app is open and on iOS background refresh (same interval; iOS may defer when battery is low). Sign in to IMS first.")
                 } else {
-                    Text("Auto sync uploads every \(AppConstants.syncIntervalLabel) when online (foreground), when you leave the app, and via iOS background refresh. Sign in to IMS first.")
+                    Text("Auto sync is off. Sync manually from the Employees tab. Sign in to IMS first.")
                 }
             }
 
@@ -74,7 +77,7 @@ struct SettingsView: View {
             } header: {
                 Text("IMS Sync & Restore")
             } footer: {
-                Text("Sign in with your IMS sync admin (e.g. sync_admin). Required for Sync Now and cloud restore to a replacement device.")
+                Text("Sign in with your IMS sync admin (e.g. sync_admin). Required for sync on the Employees tab and cloud restore to a replacement device. Restore downloads employees, face templates, enrollment photos, attendance history, and punch photos from the last 2 years.")
             }
 
             Section {
@@ -86,7 +89,6 @@ struct SettingsView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 SecureField("Password (optional if signed in)", text: $viewModel.adminPassword)
-                Toggle("Auto Sync", isOn: $viewModel.autoSyncEnabled)
                 Button {
                     Task { await viewModel.testAPIConnection() }
                 } label: {
@@ -131,6 +133,54 @@ struct SettingsView: View {
                 Text("Face Recognition")
             } footer: {
                 Text("Default AdaFace threshold is 0.45. Same person is often ~0.42–0.80. Lower the slider if valid faces show “Not recognized”; raise it to reduce lookalike matches. Re-register after switching engines — embeddings are incompatible.")
+            }
+
+            Section {
+                ForEach(FaceScanSettings.Level.allCases) { level in
+                    Button {
+                        viewModel.selectFaceScanLevel(level)
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(level.title)
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(level.subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer(minLength: 8)
+                            if viewModel.faceScanLevel == level {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if FaceScanSettings.isCustomConfiguration {
+                    LabeledContent("Custom") {
+                        Text("Manual angles below")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle(FaceScanSettings.settingsLabel(for: .closeUp), isOn: $viewModel.faceScanCenterEnabled)
+                Toggle(FaceScanSettings.settingsLabel(for: .lookLeft), isOn: $viewModel.faceScanLeftEnabled)
+                Toggle(FaceScanSettings.settingsLabel(for: .lookRight), isOn: $viewModel.faceScanRightEnabled)
+                Toggle(FaceScanSettings.settingsLabel(for: .lookUp), isOn: $viewModel.faceScanUpEnabled)
+                Toggle(FaceScanSettings.settingsLabel(for: .lookDown), isOn: $viewModel.faceScanDownEnabled)
+            } header: {
+                Text("Face Scanner")
+            } footer: {
+                if let note = viewModel.faceScanSettingsMessage {
+                    Text(note)
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("Controls the live checks during Time In / Time Out. Blink always runs first, then any enabled steps above, then 3D depth if available. Registration always captures all five angles.")
+                }
             }
 
             Section {
@@ -201,6 +251,22 @@ struct SettingsView: View {
             viewModel.configure(syncQueue: syncQueue)
         }
         .onChange(of: syncQueue.pendingCount) { _, _ in
+            viewModel.refresh()
+        }
+        .onChange(of: syncQueue.lastError) { _, _ in
+            viewModel.refresh()
+        }
+        .onChange(of: syncQueue.isSyncing) { _, _ in
+            viewModel.refresh()
+        }
+        .onChange(of: syncQueue.lastSyncDate) { _, _ in
+            viewModel.refresh()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: AppConstants.Notifications.networkConnectivityDidChange
+            )
+        ) { _ in
             viewModel.refresh()
         }
         .alert("API Connection Test", isPresented: $viewModel.showAPITestAlert) {

@@ -14,7 +14,6 @@ struct EmployeeListView: View {
     @State private var viewModel = EmployeeListViewModel()
     @State private var employeesPendingDeletion: [Employee] = []
     @State private var showDeleteConfirmation = false
-    @State private var showCloudCheckAlert = false
     @State private var showSyncAlert = false
 
     var body: some View {
@@ -47,7 +46,7 @@ struct EmployeeListView: View {
                                     .font(.caption)
                                     .foregroundStyle(.orange)
                             } else if report.needsUpload > 0 {
-                                Text("Missing employees upload on the next sync (every \(AppConstants.syncIntervalLabel), or tap Sync Now).")
+                                Text("Missing employees upload on the next sync (every \(SyncSettings.intervalLabel), or tap Sync in the toolbar).")
                                     .font(.caption)
                                     .foregroundStyle(.orange)
                             }
@@ -80,28 +79,18 @@ struct EmployeeListView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarLeading) {
+            ToolbarItem(placement: .topBarLeading) {
                 Button {
                     Task {
                         await viewModel.syncNow()
                         showSyncAlert = true
                     }
                 } label: {
-                    if syncQueue.isSyncing {
+                    if syncQueue.isSyncing || viewModel.isCheckingCloud {
                         ProgressView()
                     } else {
                         Label("Sync", systemImage: "arrow.triangle.2.circlepath")
                     }
-                }
-                .disabled(viewModel.isCheckingCloud || syncQueue.isSyncing)
-
-                Button {
-                    Task {
-                        await viewModel.checkCloudOnly()
-                        showCloudCheckAlert = true
-                    }
-                } label: {
-                    Label("Check IMS", systemImage: "checkmark.icloud")
                 }
                 .disabled(viewModel.isCheckingCloud || syncQueue.isSyncing)
             }
@@ -130,11 +119,17 @@ struct EmployeeListView: View {
         .onAppear {
             viewModel.configure(context: modelContext, syncQueue: syncQueue)
             viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
+            Task {
+                await viewModel.checkCloudIfNeeded()
+            }
         }
         .onChange(of: tabRouter.selectedTab) { _, tab in
             if tab == .employees {
                 viewModel.refresh()
                 viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
+                Task {
+                    await viewModel.checkCloudIfNeeded()
+                }
             }
         }
         .onChange(of: syncQueue.lastEmployeeSyncReport?.checkedAt) { _, _ in
@@ -147,85 +142,73 @@ struct EmployeeListView: View {
             viewModel.refresh()
         }
         .refreshable {
-            await viewModel.syncNow()
             viewModel.refresh()
+            await viewModel.checkCloudIfNeeded()
         }
         .alert("Sync", isPresented: $showSyncAlert) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(syncQueue.lastError ?? viewModel.cloudReport?.summaryLine ?? "Sync finished.")
-        }
-        .alert("IMS Employee Check", isPresented: $showCloudCheckAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(
-                viewModel.cloudReport?.summaryLine
-                    ?? viewModel.cloudCheckErrorMessage
-                    ?? "Could not check IMS."
-            )
+            Text(syncAlertMessage)
         }
     }
 
     private var syncSection: some View {
         Section {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("\(syncQueue.pendingCount) pending", systemImage: "arrow.up.circle")
-                        .font(.caption.weight(.semibold))
-                    if let last = syncQueue.lastSyncDate {
-                        Text("Last sync: \(last.attendanceDisplay)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Not synced yet")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let attempt = syncQueue.lastSyncAttemptDate {
-                        let stale = syncQueue.lastSyncDate.map { attempt.timeIntervalSince($0) > 30 } ?? true
-                        if stale {
-                            Text("Last attempt: \(attempt.attendanceDisplay)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Text("Auto sync every \(AppConstants.syncIntervalLabel) while app is open")
+            VStack(alignment: .leading, spacing: 4) {
+                Label("\(syncQueue.pendingCount) pending", systemImage: "arrow.up.circle")
+                    .font(.caption.weight(.semibold))
+                if let last = syncQueue.lastSyncDate {
+                    Text("Last sync: \(last.attendanceDisplay)")
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    if let error = syncQueue.lastError, !error.isEmpty {
-                        Text(error)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Not synced yet")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if let attempt = syncQueue.lastSyncAttemptDate {
+                    let stale = syncQueue.lastSyncDate.map { attempt.timeIntervalSince($0) > 30 } ?? true
+                    if stale {
+                        Text("Last attempt: \(attempt.attendanceDisplay)")
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                Spacer()
-                Button {
-                    Task {
-                        await viewModel.syncNow()
-                        showSyncAlert = true
-                    }
-                } label: {
-                    if syncQueue.isSyncing || viewModel.isCheckingCloud {
-                        ProgressView()
-                            .frame(width: 44)
-                    } else {
-                        Text("Sync Now")
-                            .font(.subheadline.weight(.semibold))
-                    }
+                Text("Tap Sync in the toolbar to upload employees, face data, and DTR.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text("Auto sync every \(SyncSettings.intervalLabel) while app is open")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                if let error = syncQueue.lastError, !error.isEmpty,
+                   !(NetworkMonitor.shared.isConnected && NetworkError.isOfflineMessage(error)) {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
-                .disabled(syncQueue.isSyncing || viewModel.isCheckingCloud)
             }
             .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
         }
     }
 
+    private var syncAlertMessage: String {
+        if let error = syncQueue.lastError, !error.isEmpty {
+            return error
+        }
+        if let summary = syncQueue.lastPushSummary?.successMessage, !summary.isEmpty {
+            return summary
+        }
+        if let report = viewModel.cloudReport?.summaryLine {
+            return report
+        }
+        return "Sync finished."
+    }
+
     private var deleteConfirmationMessage: String {
         if employeesPendingDeletion.count == 1, let employee = employeesPendingDeletion.first {
-            return "\(employee.fullName) (\(employee.employeeCode)) will be removed from this device, including face enrollment data. This cannot be undone."
+            return "\(employee.fullName) (\(employee.employeeCode)) will be removed from this device, including face enrollment data. If synced to IMS, their record stays on the server as Removed from app (attendance history preserved). The employee ID can be used again for a new registration."
         }
-        return "\(employeesPendingDeletion.count) employees will be removed from this device, including face enrollment data. This cannot be undone."
+        return "\(employeesPendingDeletion.count) employees will be removed from this device, including face enrollment data. Synced records stay on IMS as Removed from app. Employee IDs can be reused for new registrations."
     }
 
     private func confirmDeleteEmployees() {
@@ -233,7 +216,7 @@ struct EmployeeListView: View {
         employeesPendingDeletion = []
         showDeleteConfirmation = false
         for employee in toDelete {
-            viewModel.delete(employee)
+            Task { await viewModel.delete(employee) }
         }
     }
 }

@@ -2,7 +2,7 @@
 //  AppRootView.swift
 //  ConsTrakr
 //
-//  Hosts lifecycle hooks for auto-sync (foreground, background, BGTask).
+//  Hosts lifecycle hooks for auto-sync (foreground timer + BGTask only).
 //
 
 import SwiftUI
@@ -36,13 +36,9 @@ struct AppRootView: View {
                 _ = NetworkMonitor.shared
             }
             .onChange(of: scenePhase) { _, phase in
-                switch phase {
-                case .active:
-                    BackgroundSyncScheduler.syncOnBecomeActive()
-                case .background:
-                    BackgroundSyncScheduler.syncBeforeBackground()
-                default:
-                    break
+                // Keep the BG refresh chain alive; do not sync on resume or background.
+                if phase == .active || phase == .background {
+                    BackgroundSyncScheduler.scheduleNextSync()
                 }
             }
     }

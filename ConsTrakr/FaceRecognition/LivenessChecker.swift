@@ -13,6 +13,7 @@ enum LivenessChallenge: CaseIterable {
     case blink
     case turnLeft
     case turnRight
+    case nodUp
     case nodDown
     case moveCloser
     case confirm3D
@@ -22,6 +23,7 @@ enum LivenessChallenge: CaseIterable {
         case .blink: return "Blink both eyes slowly"
         case .turnLeft: return "Turn your head to YOUR left"
         case .turnRight: return "Turn your head to YOUR right"
+        case .nodUp: return "Look up, then look straight"
         case .nodDown: return "Look down, then look straight"
         case .moveCloser: return "Move closer to the camera"
         case .confirm3D: return "Hold still — confirming 3D face"
@@ -33,6 +35,7 @@ enum LivenessChallenge: CaseIterable {
         case .blink: return "eye"
         case .turnLeft: return "arrow.left"
         case .turnRight: return "arrow.right"
+        case .nodUp: return "arrow.up"
         case .nodDown: return "arrow.down"
         case .moveCloser: return "arrow.up.left.and.arrow.down.right"
         case .confirm3D: return "cube.transparent.fill"
@@ -40,11 +43,19 @@ enum LivenessChallenge: CaseIterable {
     }
 
     static var headTurns: [LivenessChallenge] {
-        [.turnLeft, .turnRight, .nodDown]
+        [.turnLeft, .turnRight, .nodUp, .nodDown]
     }
 
     static func randomHeadTurn() -> LivenessChallenge {
-        headTurns.randomElement() ?? .turnLeft
+        let enabled = FaceScanSettings.enabledSteps
+            .filter { $0 != .closeUp }
+            .map(\.livenessChallenge)
+        return enabled.randomElement() ?? .turnLeft
+    }
+
+    /// Scanner gestures from Settings → Face Scanner (blink is always prepended).
+    static func configuredScannerSteps() -> [LivenessChallenge] {
+        FaceScanSettings.scannerLivenessSteps()
     }
 }
 
@@ -84,14 +95,15 @@ final class LivenessChecker {
     private let closedEAR: Float = 0.16
     private let openEAR: Float = 0.21
     private let yawTarget: Double = 0.16
+    private let pitchUpTarget: Double = 0.16
     private let pitchDownTarget: Double = -0.12
     private let centerYaw: Double = 0.12
     private let centerPitch: Double = 0.12
     private let closerScale: CGFloat = 1.45
 
-    /// Scanner: blink → one random head turn → move closer (stable 3-step flow).
+    /// Scanner: blink + enabled gestures from Settings → Face Scanner.
     static func scannerSteps() -> [LivenessChallenge] {
-        [.blink, LivenessChallenge.randomHeadTurn(), .moveCloser]
+        LivenessChallenge.configuredScannerSteps()
     }
 
     init(steps: [LivenessChallenge] = [.blink]) {
@@ -139,7 +151,7 @@ final class LivenessChecker {
     /// After a head turn/nod, user must face the camera again.
     var needsLookStraight: Bool {
         switch challenge {
-        case .turnLeft, .turnRight, .nodDown:
+        case .turnLeft, .turnRight, .nodUp, .nodDown:
             return sawTargetPose && phase != .passed
         case .blink, .moveCloser, .confirm3D:
             return false
@@ -191,6 +203,11 @@ final class LivenessChecker {
         case .nodDown:
             updateTurn(
                 reached: pitch <= pitchDownTarget,
+                centered: abs(yaw) < centerYaw && abs(pitch) < centerPitch
+            )
+        case .nodUp:
+            updateTurn(
+                reached: pitch >= pitchUpTarget,
                 centered: abs(yaw) < centerYaw && abs(pitch) < centerPitch
             )
         case .moveCloser:

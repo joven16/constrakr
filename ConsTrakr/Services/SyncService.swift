@@ -61,6 +61,8 @@ final class SyncService {
 
         let empRepo = EmployeeRepository(context: context)
         _ = try empRepo.repairStaleSyncState()
+        await processPendingEmployeeDeletions()
+
         do {
             try EmployeeChildSyncPreparer.prepareAll(context: context, persist: true)
         } catch {
@@ -187,6 +189,9 @@ final class SyncService {
     }
 
     private func hasPendingPushWork(context: ModelContext) throws -> Bool {
+        if PendingEmployeeDeletionStore.hasPending() {
+            return true
+        }
         let employees = EmployeeRepository(context: context)
         let embeddings = FaceEmbeddingRepository(context: context)
         let photos = FaceEnrollmentPhotoRepository(context: context)
@@ -195,6 +200,31 @@ final class SyncService {
             || embeddings.pendingCount() > 0
             || photos.pendingCount() > 0
             || attendance.pendingCount() > 0
+    }
+
+    /// Soft-delete employees on IMS that were removed on this device.
+    func processPendingEmployeeDeletions() async {
+        let pending = PendingEmployeeDeletionStore.pendingServerIds()
+        guard !pending.isEmpty else { return }
+        guard NetworkMonitor.shared.isConnected else { return }
+        guard AdminSession.shared.isAuthenticated else { return }
+        guard await api.hasAuthToken() else { return }
+
+        for serverId in pending {
+            do {
+                try await api.deleteEmployee(serverId: serverId)
+                PendingEmployeeDeletionStore.remove(serverId: serverId)
+            } catch let error as NetworkError {
+                switch error {
+                case .serverError(404, _):
+                    PendingEmployeeDeletionStore.remove(serverId: serverId)
+                default:
+                    break
+                }
+            } catch {
+                break
+            }
+        }
     }
 
     private func persist(_ context: ModelContext) throws {
@@ -667,37 +697,50 @@ final class SyncService {
             }
         }
 
-        // INTEGRATION: GET /face-enrollment-photos
-        let remotePhotos = try await api.getFaceEnrollmentPhotos()
+        // INTEGRATION: GET /face-enrollment-photos (with JPEG bytes for full device restore)
+        let remotePhotos = try await api.getFaceEnrollmentPhotos(includeMedia: true)
         var photoCount = 0
+        var photoJPEGCount = 0
         for dto in remotePhotos {
-            let localEmployeeId: UUID
-            if let serverId = dto.employeeServerId, let mapped = localIdByServerId[serverId] {
-                localEmployeeId = mapped
-            } else if let existing = try empRepo.fetch(id: dto.employeeLocalId) {
-                localEmployeeId = existing.id
-            } else {
-                continue
-            }
+            guard let localEmployeeId = try resolveRestoreEmployeeId(
+                dtoEmployeeServerId: dto.employeeServerId,
+                dtoEmployeeLocalId: dto.employeeLocalId,
+                localIdByServerId: localIdByServerId,
+                empRepo: empRepo
+            ) else { continue }
             try photoRepo.upsertFromRemote(dto, employeeLocalId: localEmployeeId)
             photoCount += 1
+            if let jpegBase64 = dto.jpegBase64,
+               !jpegBase64.isEmpty,
+               Data(base64Encoded: jpegBase64) != nil {
+                photoJPEGCount += 1
+            }
         }
 
-        // Optional: GET /attendance for history restore (does not block offline recognition).
+        // GET /attendance for history restore (includes punch JPEGs when include_media=1).
         let restoreStart = Calendar.current.date(byAdding: .year, value: -2, to: Date()) ?? Date()
         let remoteAttendance = try await api.getAttendance(
             employeeServerId: nil,
             startDate: restoreStart,
-            endDate: Date()
+            endDate: Date(),
+            includeMedia: true
         )
         var attendanceCount = 0
+        var punchPhotoCount = 0
         for dto in remoteAttendance {
             let already = try attExists(context: context, serverId: dto.serverId, localId: dto.localId)
             guard !already else { continue }
+            guard let localEmployeeId = try resolveRestoreEmployeeId(
+                dtoEmployeeServerId: dto.employeeServerId,
+                dtoEmployeeLocalId: dto.employeeLocalId,
+                localIdByServerId: localIdByServerId,
+                empRepo: empRepo
+            ) else { continue }
+
             let record = Attendance(
                 id: dto.localId,
                 serverId: dto.serverId,
-                employeeId: dto.employeeLocalId,
+                employeeId: localEmployeeId,
                 employeeServerId: dto.employeeServerId,
                 checkType: CheckType(rawValue: dto.checkType) ?? .checkIn,
                 timestamp: dto.timestamp,
@@ -709,6 +752,7 @@ final class SyncService {
             if let punchBase64 = dto.punchPhotoBase64,
                let jpeg = Data(base64Encoded: punchBase64) {
                 try? AttendancePhotoStore.save(attendanceId: record.id, jpeg: jpeg)
+                punchPhotoCount += 1
             }
             attendanceCount += 1
         }
@@ -718,8 +762,28 @@ final class SyncService {
             employees: employeeCount,
             embeddings: embeddingCount,
             enrollmentPhotos: photoCount,
-            attendance: attendanceCount
+            enrollmentPhotosWithJPEG: photoJPEGCount,
+            attendance: attendanceCount,
+            punchPhotos: punchPhotoCount
         )
+    }
+
+    private func resolveRestoreEmployeeId(
+        dtoEmployeeServerId: String?,
+        dtoEmployeeLocalId: UUID,
+        localIdByServerId: [String: UUID],
+        empRepo: EmployeeRepository
+    ) throws -> UUID? {
+        if let serverId = dtoEmployeeServerId, let mapped = localIdByServerId[serverId] {
+            return mapped
+        }
+        if let existing = try empRepo.fetch(id: dtoEmployeeLocalId) {
+            return existing.id
+        }
+        if let serverId = dtoEmployeeServerId, let existing = try empRepo.fetch(serverId: serverId) {
+            return existing.id
+        }
+        return nil
     }
 
     private func attExists(context: ModelContext, serverId: String?, localId: UUID) throws -> Bool {
@@ -735,6 +799,21 @@ final class SyncService {
         let employees: Int
         let embeddings: Int
         let enrollmentPhotos: Int
+        let enrollmentPhotosWithJPEG: Int
         let attendance: Int
+        let punchPhotos: Int
+
+        var successMessage: String {
+            var parts = [
+                "\(employees) employees",
+                "\(embeddings) face templates",
+                "\(enrollmentPhotosWithJPEG) enrollment photos",
+                "\(attendance) attendance records"
+            ]
+            if punchPhotos > 0 {
+                parts.append("\(punchPhotos) punch photos")
+            }
+            return "Restored " + parts.joined(separator: ", ") + "."
+        }
     }
 }
