@@ -113,6 +113,8 @@ struct EmployeeDTO: Codable, Identifiable {
     let department: String
     /// AES-GCM encrypted TrueDepth signature (empty when device has no TrueDepth).
     let encryptedDepthSignatureBase64: String?
+    let updatedAt: Date?
+    let createdAt: Date?
 
     var id: UUID { localId }
 
@@ -125,6 +127,9 @@ struct EmployeeDTO: Codable, Identifiable {
         case lastName = "last_name"
         case department
         case encryptedDepthSignatureBase64 = "encrypted_depth_signature_base64"
+        case encryptedDepthSignature = "encrypted_depth_signature"
+        case updatedAt = "updated_at"
+        case createdAt = "created_at"
     }
 
     init(
@@ -134,7 +139,9 @@ struct EmployeeDTO: Codable, Identifiable {
         firstName: String,
         lastName: String,
         department: String,
-        encryptedDepthSignatureBase64: String? = nil
+        encryptedDepthSignatureBase64: String? = nil,
+        updatedAt: Date? = nil,
+        createdAt: Date? = nil
     ) {
         self.serverId = serverId
         self.localId = localId
@@ -143,6 +150,8 @@ struct EmployeeDTO: Codable, Identifiable {
         self.lastName = lastName
         self.department = department
         self.encryptedDepthSignatureBase64 = encryptedDepthSignatureBase64
+        self.updatedAt = updatedAt
+        self.createdAt = createdAt
     }
 
     init(from decoder: Decoder) throws {
@@ -151,13 +160,28 @@ struct EmployeeDTO: Codable, Identifiable {
             ?? container.decodeIfPresent(String.self, forKey: .id)
         localId = try container.decode(UUID.self, forKey: .localId)
         employeeCode = try container.decode(String.self, forKey: .employeeCode)
-        firstName = try container.decode(String.self, forKey: .firstName)
-        lastName = try container.decode(String.self, forKey: .lastName)
-        department = try container.decode(String.self, forKey: .department)
+        firstName = try container.decodeIfPresent(String.self, forKey: .firstName) ?? ""
+        lastName = try container.decodeIfPresent(String.self, forKey: .lastName) ?? ""
+        department = try container.decodeIfPresent(String.self, forKey: .department) ?? "General"
         encryptedDepthSignatureBase64 = try container.decodeIfPresent(
             String.self,
             forKey: .encryptedDepthSignatureBase64
-        )
+        ) ?? container.decodeIfPresent(String.self, forKey: .encryptedDepthSignature)
+        updatedAt = Self.decodeOptionalDate(from: container, forKey: .updatedAt)
+        createdAt = Self.decodeOptionalDate(from: container, forKey: .createdAt)
+    }
+
+    private static func decodeOptionalDate(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> Date? {
+        if let date = try? container.decodeIfPresent(Date.self, forKey: key) {
+            return date
+        }
+        if let string = try? container.decodeIfPresent(String.self, forKey: key) {
+            return APIDecoding.parseISO8601(string)
+        }
+        return nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -169,6 +193,8 @@ struct EmployeeDTO: Codable, Identifiable {
         try container.encode(lastName, forKey: .lastName)
         try container.encode(department, forKey: .department)
         try container.encodeIfPresent(encryptedDepthSignatureBase64, forKey: .encryptedDepthSignatureBase64)
+        try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(createdAt, forKey: .createdAt)
     }
 }
 
@@ -211,11 +237,87 @@ struct FaceEmbeddingDTO: Codable {
     let pose: String
     /// Base64 of AES-GCM ciphertext — never plaintext floats over the wire.
     let encryptedValuesBase64: String
+
+    enum CodingKeys: String, CodingKey {
+        case serverId = "server_id"
+        case id
+        case localId = "local_id"
+        case employeeServerId = "employee_server_id"
+        case employeeLocalId = "employee_local_id"
+        case pose
+        case encryptedValuesBase64 = "encrypted_values_base64"
+        case encryptedValues = "encrypted_values"
+    }
+
+    init(
+        serverId: String?,
+        localId: UUID,
+        employeeServerId: String?,
+        employeeLocalId: UUID,
+        pose: String,
+        encryptedValuesBase64: String
+    ) {
+        self.serverId = serverId
+        self.localId = localId
+        self.employeeServerId = employeeServerId
+        self.employeeLocalId = employeeLocalId
+        self.pose = pose
+        self.encryptedValuesBase64 = encryptedValuesBase64
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        serverId = try container.decodeIfPresent(String.self, forKey: .serverId)
+            ?? container.decodeIfPresent(String.self, forKey: .id)
+        localId = try container.decode(UUID.self, forKey: .localId)
+        employeeServerId = try container.decodeIfPresent(String.self, forKey: .employeeServerId)
+        employeeLocalId = try container.decode(UUID.self, forKey: .employeeLocalId)
+        pose = try container.decode(String.self, forKey: .pose)
+        encryptedValuesBase64 = try container.decodeIfPresent(String.self, forKey: .encryptedValuesBase64)
+            ?? container.decodeIfPresent(String.self, forKey: .encryptedValues)
+            ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(serverId, forKey: .serverId)
+        try container.encode(localId, forKey: .localId)
+        try container.encodeIfPresent(employeeServerId, forKey: .employeeServerId)
+        try container.encode(employeeLocalId, forKey: .employeeLocalId)
+        try container.encode(pose, forKey: .pose)
+        try container.encode(encryptedValuesBase64, forKey: .encryptedValuesBase64)
+    }
 }
 
-struct FaceEmbeddingUpsertResponse: Codable {
+struct FaceEmbeddingUpsertResponse: Decodable {
     let serverId: String
     let localId: UUID
+
+    enum CodingKeys: String, CodingKey {
+        case serverId = "server_id"
+        case id
+        case localId = "local_id"
+    }
+
+    init(serverId: String, localId: UUID) {
+        self.serverId = serverId
+        self.localId = localId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let value = try container.decodeIfPresent(String.self, forKey: .serverId) {
+            serverId = value
+        } else if let value = try container.decodeIfPresent(String.self, forKey: .id) {
+            serverId = value
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.serverId,
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing server_id or id")
+            )
+        }
+        localId = try container.decode(UUID.self, forKey: .localId)
+    }
 }
 
 struct FaceEnrollmentPhotoDTO: Codable {
@@ -224,13 +326,86 @@ struct FaceEnrollmentPhotoDTO: Codable {
     let employeeServerId: String?
     let employeeLocalId: UUID
     let pose: String
-    /// JPEG bytes, base64 — enrollment face crop for web dashboard display.
-    let jpegBase64: String
+    /// JPEG bytes, base64 — required for POST; optional on GET list responses.
+    let jpegBase64: String?
+
+    enum CodingKeys: String, CodingKey {
+        case serverId = "server_id"
+        case id
+        case localId = "local_id"
+        case employeeServerId = "employee_server_id"
+        case employeeLocalId = "employee_local_id"
+        case pose
+        case jpegBase64 = "jpeg_base64"
+    }
+
+    init(
+        serverId: String?,
+        localId: UUID,
+        employeeServerId: String?,
+        employeeLocalId: UUID,
+        pose: String,
+        jpegBase64: String?
+    ) {
+        self.serverId = serverId
+        self.localId = localId
+        self.employeeServerId = employeeServerId
+        self.employeeLocalId = employeeLocalId
+        self.pose = pose
+        self.jpegBase64 = jpegBase64
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        serverId = try container.decodeIfPresent(String.self, forKey: .serverId)
+            ?? container.decodeIfPresent(String.self, forKey: .id)
+        localId = try container.decode(UUID.self, forKey: .localId)
+        employeeServerId = try container.decodeIfPresent(String.self, forKey: .employeeServerId)
+        employeeLocalId = try container.decode(UUID.self, forKey: .employeeLocalId)
+        pose = try container.decode(String.self, forKey: .pose)
+        jpegBase64 = try container.decodeIfPresent(String.self, forKey: .jpegBase64)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(serverId, forKey: .serverId)
+        try container.encode(localId, forKey: .localId)
+        try container.encodeIfPresent(employeeServerId, forKey: .employeeServerId)
+        try container.encode(employeeLocalId, forKey: .employeeLocalId)
+        try container.encode(pose, forKey: .pose)
+        try container.encodeIfPresent(jpegBase64, forKey: .jpegBase64)
+    }
 }
 
-struct FaceEnrollmentPhotoUpsertResponse: Codable {
+struct FaceEnrollmentPhotoUpsertResponse: Decodable {
     let serverId: String
     let localId: UUID
+
+    enum CodingKeys: String, CodingKey {
+        case serverId = "server_id"
+        case id
+        case localId = "local_id"
+    }
+
+    init(serverId: String, localId: UUID) {
+        self.serverId = serverId
+        self.localId = localId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let value = try container.decodeIfPresent(String.self, forKey: .serverId) {
+            serverId = value
+        } else if let value = try container.decodeIfPresent(String.self, forKey: .id) {
+            serverId = value
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.serverId,
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing server_id or id")
+            )
+        }
+        localId = try container.decode(UUID.self, forKey: .localId)
+    }
 }
 
 struct AttendanceDTO: Codable {
@@ -268,9 +443,35 @@ struct AttendanceDTO: Codable {
     }
 }
 
-struct AttendanceUpsertResponse: Codable {
+struct AttendanceUpsertResponse: Decodable {
     let serverId: String
     let localId: UUID
+
+    enum CodingKeys: String, CodingKey {
+        case serverId = "server_id"
+        case id
+        case localId = "local_id"
+    }
+
+    init(serverId: String, localId: UUID) {
+        self.serverId = serverId
+        self.localId = localId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let value = try container.decodeIfPresent(String.self, forKey: .serverId) {
+            serverId = value
+        } else if let value = try container.decodeIfPresent(String.self, forKey: .id) {
+            serverId = value
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.serverId,
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing server_id or id")
+            )
+        }
+        localId = try container.decode(UUID.self, forKey: .localId)
+    }
 }
 
 struct AdminLoginRequest: Codable {

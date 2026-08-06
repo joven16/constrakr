@@ -28,7 +28,8 @@ enum AppConstants {
     static let scannerCooldown: TimeInterval = 3.0
     static let scannerWarmupFrames: Int = 3
     static let scannerConsensusFrames: Int = 2
-    static let syncIntervalSeconds: TimeInterval = 60
+    static let syncIntervalSeconds: TimeInterval = 300
+    static let syncIntervalLabel = "5 minutes"
     static let registrationResetDelay: TimeInterval = 2.5
 
     enum UserDefaultsKeys {

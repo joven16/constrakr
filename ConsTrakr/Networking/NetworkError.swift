@@ -11,7 +11,7 @@ enum NetworkError: LocalizedError {
     case invalidResponse
     case unauthorized
     case serverError(statusCode: Int, message: String?)
-    case decodingFailed
+    case decodingFailed(message: String? = nil)
     case encodingFailed
 
     var errorDescription: String? {
@@ -26,8 +26,8 @@ enum NetworkError: LocalizedError {
             return "Sign in under Settings with your IMS sync admin account before syncing."
         case .serverError(let code, let message):
             return message ?? "Server error (\(code))."
-        case .decodingFailed:
-            return "Failed to decode server response."
+        case .decodingFailed(let message):
+            return message ?? "Failed to decode server response."
         case .encodingFailed:
             return "Failed to encode request body."
         }

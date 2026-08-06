@@ -47,7 +47,7 @@ struct SettingsView: View {
                 if let status = viewModel.statusMessage {
                     Text(status)
                 } else {
-                    Text("Auto sync uploads every 1 minute when online (foreground), when you leave the app, and via iOS background refresh. Sign in to IMS first.")
+                    Text("Auto sync uploads every \(AppConstants.syncIntervalLabel) when online (foreground), when you leave the app, and via iOS background refresh. Sign in to IMS first.")
                 }
             }
 

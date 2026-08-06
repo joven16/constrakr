@@ -57,7 +57,7 @@ actor APIService {
             }
             let token = "demo-admin-token-\(UUID().uuidString)"
             authToken = token
-            SyncAuthStore.saveSession(token: token, username: username)
+            SyncAuthStore.saveSession(token: token, username: username, expiresIn: 86400)
             return AdminLoginResponse(accessToken: token, expiresIn: 86400)
         }
 
@@ -66,7 +66,7 @@ actor APIService {
         do {
             let decoded = try JSONDecoder.api.decode(AdminLoginResponse.self, from: data)
             authToken = decoded.accessToken
-            SyncAuthStore.saveSession(token: decoded.accessToken, username: username)
+            SyncAuthStore.saveSession(token: decoded.accessToken, username: username, expiresIn: decoded.expiresIn)
             return decoded
         } catch {
             let snippet = String(data: data, encoding: .utf8)?
@@ -96,13 +96,69 @@ actor APIService {
 
     // MARK: - Employees
 
-    func getEmployees() async throws -> [EmployeeDTO] {
+    /// Raw JSON body for lenient employee roster parsing.
+    func fetchEmployeesData(
+        localId: UUID? = nil,
+        employeeCode: String? = nil,
+        serverId: String? = nil
+    ) async throws -> Data {
         try rejectIfUnconfigured()
-        let request = try makeRequest(for: .getEmployees)
+        var request = try makeRequest(for: .getEmployees)
+        if localId != nil || employeeCode != nil || serverId != nil,
+           let url = request.url,
+           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            var query = components.queryItems ?? []
+            if let localId {
+                query.append(URLQueryItem(name: "local_id", value: localId.uuidString))
+            }
+            if let employeeCode, !employeeCode.isEmpty {
+                query.append(URLQueryItem(name: "employee_code", value: employeeCode))
+            }
+            if let serverId, !serverId.isEmpty {
+                query.append(URLQueryItem(name: "server_id", value: serverId))
+            }
+            components.queryItems = query
+            request.url = components.url
+        }
+        if isDemoHost { return Data("{}".utf8) }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        return data ?? Data()
+    }
+
+    func getEmployees(
+        localId: UUID? = nil,
+        employeeCode: String? = nil,
+        serverId: String? = nil
+    ) async throws -> [EmployeeDTO] {
+        try rejectIfUnconfigured()
+        var request = try makeRequest(for: .getEmployees)
+        if localId != nil || employeeCode != nil || serverId != nil,
+           let url = request.url,
+           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            var query = components.queryItems ?? []
+            if let localId {
+                query.append(URLQueryItem(name: "local_id", value: localId.uuidString))
+            }
+            if let employeeCode, !employeeCode.isEmpty {
+                query.append(URLQueryItem(name: "employee_code", value: employeeCode))
+            }
+            if let serverId, !serverId.isEmpty {
+                query.append(URLQueryItem(name: "server_id", value: serverId))
+            }
+            components.queryItems = query
+            request.url = components.url
+        }
         if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
-        return try Self.decodeEmployeeList(from: data)
+        let parsed = APIDecoding.decodeEmployees(from: data)
+        if parsed.rawCount > 0, parsed.decodedCount == 0 {
+            throw NetworkError.decodingFailed(
+                message: "Could not read \(parsed.rawCount) employee(s) from IMS. Tap Sync Now to retry."
+            )
+        }
+        return parsed.employees
     }
 
     func postEmployee(_ dto: EmployeeDTO) async throws -> EmployeeUpsertResponse {
@@ -117,6 +173,12 @@ actor APIService {
 
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
+        if let parsed = APIDecoding.parseUpsertPayload(data, expectedLocalId: dto.localId) {
+            return parsed
+        }
+        if let recovered = try await recoverEmployeeUpsert(localId: dto.localId, employeeCode: dto.employeeCode) {
+            return recovered
+        }
         return try APIDecoding.decodeEmployeeUpsert(from: data, expectedLocalId: dto.localId)
     }
 
@@ -135,7 +197,29 @@ actor APIService {
 
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
+        if let parsed = APIDecoding.parseUpsertPayload(data, expectedLocalId: dto.localId) {
+            return parsed
+        }
+        if let recovered = try await recoverEmployeeUpsert(localId: dto.localId, employeeCode: dto.employeeCode) {
+            return recovered
+        }
         return try APIDecoding.decodeEmployeeUpsert(from: data, expectedLocalId: dto.localId)
+    }
+
+    private func recoverEmployeeUpsert(localId: UUID, employeeCode: String) async throws -> EmployeeUpsertResponse? {
+        let byLocal = try await getEmployees(localId: localId)
+        if let match = byLocal.first,
+           let serverId = APIDecoding.normalizedServerId(match.serverId) {
+            return EmployeeUpsertResponse(serverId: serverId, localId: match.localId)
+        }
+
+        let byCode = try await getEmployees(employeeCode: employeeCode)
+        if let match = byCode.first,
+           let serverId = APIDecoding.normalizedServerId(match.serverId) {
+            return EmployeeUpsertResponse(serverId: serverId, localId: match.localId)
+        }
+
+        return nil
     }
 
     // MARK: - Face embeddings
@@ -146,7 +230,19 @@ actor APIService {
         if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
-        return try JSONDecoder.api.decode([FaceEmbeddingDTO].self, from: data)
+        do {
+            return try APIDecoding.decodeFlexibleList(
+                FaceEmbeddingDTO.self,
+                from: data,
+                arrayKeys: ["face_embeddings", "embeddings", "data", "results"]
+            )
+        } catch let error as NetworkError {
+            throw error
+        } catch {
+            throw NetworkError.decodingFailed(
+                message: APIDecoding.describeDecodingFailure(data: data, underlying: error)
+            )
+        }
     }
 
     func postFaceEmbedding(_ dto: FaceEmbeddingDTO) async throws -> FaceEmbeddingUpsertResponse {
@@ -161,7 +257,8 @@ actor APIService {
 
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
-        return try JSONDecoder.api.decode(FaceEmbeddingUpsertResponse.self, from: data)
+        let parsed = try APIDecoding.decodeUpsertResponse(from: data, expectedLocalId: dto.localId)
+        return FaceEmbeddingUpsertResponse(serverId: parsed.serverId, localId: parsed.localId)
     }
 
     // MARK: - Enrollment photos
@@ -172,7 +269,19 @@ actor APIService {
         if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
-        return try JSONDecoder.api.decode([FaceEnrollmentPhotoDTO].self, from: data)
+        do {
+            return try APIDecoding.decodeFlexibleList(
+                FaceEnrollmentPhotoDTO.self,
+                from: data,
+                arrayKeys: ["face_enrollment_photos", "photos", "data", "results"]
+            )
+        } catch let error as NetworkError {
+            throw error
+        } catch {
+            throw NetworkError.decodingFailed(
+                message: APIDecoding.describeDecodingFailure(data: data, underlying: error)
+            )
+        }
     }
 
     func postFaceEnrollmentPhoto(_ dto: FaceEnrollmentPhotoDTO) async throws -> FaceEnrollmentPhotoUpsertResponse {
@@ -190,7 +299,8 @@ actor APIService {
 
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
-        return try JSONDecoder.api.decode(FaceEnrollmentPhotoUpsertResponse.self, from: data)
+        let parsed = try APIDecoding.decodeUpsertResponse(from: data, expectedLocalId: dto.localId)
+        return FaceEnrollmentPhotoUpsertResponse(serverId: parsed.serverId, localId: parsed.localId)
     }
 
     // MARK: - Attendance
@@ -211,7 +321,19 @@ actor APIService {
         if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
-        return try JSONDecoder.api.decode([AttendanceDTO].self, from: data)
+        do {
+            return try APIDecoding.decodeFlexibleList(
+                AttendanceDTO.self,
+                from: data,
+                arrayKeys: ["attendance", "records", "data", "results"]
+            )
+        } catch let error as NetworkError {
+            throw error
+        } catch {
+            throw NetworkError.decodingFailed(
+                message: APIDecoding.describeDecodingFailure(data: data, underlying: error)
+            )
+        }
     }
 
     func postAttendance(_ dto: AttendanceDTO) async throws -> AttendanceUpsertResponse {
@@ -226,15 +348,16 @@ actor APIService {
 
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
-        return try JSONDecoder.api.decode(AttendanceUpsertResponse.self, from: data)
+        let parsed = try APIDecoding.decodeUpsertResponse(from: data, expectedLocalId: dto.localId)
+        return AttendanceUpsertResponse(serverId: parsed.serverId, localId: parsed.localId)
     }
 
     // MARK: - Helpers
 
     private static func makeSyncSession() -> URLSession {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 45
-        config.timeoutIntervalForResource = 120
+        config.timeoutIntervalForRequest = 90
+        config.timeoutIntervalForResource = 180
         config.httpMaximumConnectionsPerHost = 6
         config.waitsForConnectivity = false
         return URLSession(configuration: config)
@@ -307,25 +430,6 @@ actor APIService {
         return base
     }
 
-    private static func decodeEmployeeList(from data: Data) throws -> [EmployeeDTO] {
-        let decoder = JSONDecoder.api
-        if let direct = try? decoder.decode([EmployeeDTO].self, from: data) {
-            return direct
-        }
-
-        struct Wrapped: Decodable {
-            let employees: [EmployeeDTO]?
-            let data: [EmployeeDTO]?
-            let results: [EmployeeDTO]?
-        }
-
-        let wrapped = try decoder.decode(Wrapped.self, from: data)
-        if let employees = wrapped.employees { return employees }
-        if let data = wrapped.data { return data }
-        if let results = wrapped.results { return results }
-        return []
-    }
-
     private func makeRequest(for endpoint: APIEndpoint) throws -> URLRequest {
         guard var components = URLComponents(string: normalizedHostRoot() + endpoint.path) else {
             throw NetworkError.invalidURL
@@ -341,7 +445,7 @@ actor APIService {
         var request = URLRequest(url: url)
         request.httpMethod = endpoint.method
         // Render cold starts can exceed 45s on first request after idle.
-        request.timeoutInterval = 45
+        request.timeoutInterval = 90
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if endpoint.requiresAuth, let authToken {
             request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
@@ -382,7 +486,17 @@ extension JSONEncoder {
 extension JSONDecoder {
     static let api: JSONDecoder = {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let string = try container.decode(String.self)
+            if let parsed = APIDecoding.parseISO8601(string) {
+                return parsed
+            }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid ISO8601 date: \(string)"
+            )
+        }
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return decoder
     }()

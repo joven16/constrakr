@@ -97,7 +97,8 @@ final class FaceEnrollmentPhotoRepository {
                 existing.syncStatus = .synced
                 existing.updatedAt = Date()
                 try context.save()
-                if let jpeg = Data(base64Encoded: dto.jpegBase64) {
+                if let jpegBase64 = dto.jpegBase64,
+                   let jpeg = Data(base64Encoded: jpegBase64) {
                     try EnrollmentPhotoStore.saveAll(employeeId: employeeLocalId, photos: [
                         FacePose(rawValue: dto.pose) ?? .center: jpeg
                     ])
@@ -114,7 +115,8 @@ final class FaceEnrollmentPhotoRepository {
             syncStatus: .synced
         )
         try save(entity)
-        if let jpeg = Data(base64Encoded: dto.jpegBase64) {
+        if let jpegBase64 = dto.jpegBase64,
+           let jpeg = Data(base64Encoded: jpegBase64) {
             try EnrollmentPhotoStore.saveAll(employeeId: employeeLocalId, photos: [
                 entity.pose: jpeg
             ])

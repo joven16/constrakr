@@ -15,6 +15,7 @@ struct EmployeeListView: View {
     @State private var employeesPendingDeletion: [Employee] = []
     @State private var showDeleteConfirmation = false
     @State private var showCloudCheckAlert = false
+    @State private var showSyncAlert = false
 
     var body: some View {
         NavigationStack {
@@ -33,11 +34,23 @@ struct EmployeeListView: View {
                 )
             } else {
                 List {
+                    syncSection
+
                     if let report = viewModel.cloudReport {
                         Section {
                             LabeledContent("On IMS", value: "\(report.confirmedOnIMS)/\(report.localTotal)")
                             LabeledContent("Need upload", value: "\(report.needsUpload)")
-                            LabeledContent("Server total", value: "\(report.remoteTotal)")
+                            LabeledContent("IMS server", value: "\(report.remoteTotal) (\(report.remoteRawCount) raw)")
+                            LabeledContent("Checked", value: report.checkedAt.attendanceDisplay)
+                            if let note = report.statusNote {
+                                Text(note)
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            } else if report.needsUpload > 0 {
+                                Text("Missing employees upload on the next sync (every \(AppConstants.syncIntervalLabel), or tap Sync Now).")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
                         } header: {
                             Text("IMS employee check")
                         }
@@ -47,12 +60,12 @@ struct EmployeeListView: View {
                         NavigationLink {
                             EmployeeDetailView(
                                 employee: employee,
-                                cloudStatus: viewModel.cloudStatus(for: employee.id)
+                                cloudItem: viewModel.cloudItem(for: employee.id)
                             )
                         } label: {
                             EmployeeRow(
                                 employee: employee,
-                                cloudStatus: viewModel.cloudStatus(for: employee.id)
+                                cloudItem: viewModel.cloudItem(for: employee.id)
                             )
                         }
                     }
@@ -67,20 +80,30 @@ struct EmployeeListView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItemGroup(placement: .topBarLeading) {
                 Button {
                     Task {
-                        await viewModel.checkCloudSync()
+                        await viewModel.syncNow()
+                        showSyncAlert = true
+                    }
+                } label: {
+                    if syncQueue.isSyncing {
+                        ProgressView()
+                    } else {
+                        Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+                .disabled(viewModel.isCheckingCloud || syncQueue.isSyncing)
+
+                Button {
+                    Task {
+                        await viewModel.checkCloudOnly()
                         showCloudCheckAlert = true
                     }
                 } label: {
-                    if viewModel.isCheckingCloud {
-                        ProgressView()
-                    } else {
-                        Label("Check IMS", systemImage: "checkmark.icloud")
-                    }
+                    Label("Check IMS", systemImage: "checkmark.icloud")
                 }
-                .disabled(viewModel.isCheckingCloud)
+                .disabled(viewModel.isCheckingCloud || syncQueue.isSyncing)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
@@ -106,25 +129,95 @@ struct EmployeeListView: View {
         }
         .onAppear {
             viewModel.configure(context: modelContext, syncQueue: syncQueue)
-            Task { await viewModel.checkCloudSync() }
+            viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
         }
         .onChange(of: tabRouter.selectedTab) { _, tab in
             if tab == .employees {
                 viewModel.refresh()
-                Task { await viewModel.checkCloudSync() }
+                viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
             }
+        }
+        .onChange(of: syncQueue.lastEmployeeSyncReport?.checkedAt) { _, _ in
+            viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
+        }
+        .onChange(of: syncQueue.lastSyncDate) { _, _ in
+            viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
         }
         .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
             viewModel.refresh()
         }
         .refreshable {
-            await viewModel.checkCloudSync()
+            await viewModel.syncNow()
             viewModel.refresh()
+        }
+        .alert("Sync", isPresented: $showSyncAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(syncQueue.lastError ?? viewModel.cloudReport?.summaryLine ?? "Sync finished.")
         }
         .alert("IMS Employee Check", isPresented: $showCloudCheckAlert) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(viewModel.cloudReport?.summaryLine ?? viewModel.errorMessage ?? "Could not check IMS.")
+            Text(
+                viewModel.cloudReport?.summaryLine
+                    ?? viewModel.cloudCheckErrorMessage
+                    ?? "Could not check IMS."
+            )
+        }
+    }
+
+    private var syncSection: some View {
+        Section {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("\(syncQueue.pendingCount) pending", systemImage: "arrow.up.circle")
+                        .font(.caption.weight(.semibold))
+                    if let last = syncQueue.lastSyncDate {
+                        Text("Last sync: \(last.attendanceDisplay)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Not synced yet")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let attempt = syncQueue.lastSyncAttemptDate {
+                        let stale = syncQueue.lastSyncDate.map { attempt.timeIntervalSince($0) > 30 } ?? true
+                        if stale {
+                            Text("Last attempt: \(attempt.attendanceDisplay)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text("Auto sync every \(AppConstants.syncIntervalLabel) while app is open")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    if let error = syncQueue.lastError, !error.isEmpty {
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                Spacer()
+                Button {
+                    Task {
+                        await viewModel.syncNow()
+                        showSyncAlert = true
+                    }
+                } label: {
+                    if syncQueue.isSyncing || viewModel.isCheckingCloud {
+                        ProgressView()
+                            .frame(width: 44)
+                    } else {
+                        Text("Sync Now")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.cyan)
+                .disabled(syncQueue.isSyncing || viewModel.isCheckingCloud)
+            }
+            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
         }
     }
 
@@ -147,7 +240,11 @@ struct EmployeeListView: View {
 
 private struct EmployeeRow: View {
     let employee: Employee
-    let cloudStatus: EmployeeCloudStatus
+    let cloudItem: EmployeeSyncStatusItem?
+
+    private var cloudStatus: EmployeeCloudStatus {
+        cloudItem?.status ?? .notChecked
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -158,10 +255,16 @@ private struct EmployeeRow: View {
                 Text("\(employee.employeeCode) · \(employee.department)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let cloudItem {
+                    Text(cloudItem.imsDateLine)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
                 CloudStatusBadge(status: cloudStatus)
+                StatusBadge(status: cloudItem?.localSyncStatus ?? employee.syncStatus)
                 if employee.isEnrolled {
                     Image(systemName: "faceid")
                         .font(.caption)
@@ -202,7 +305,11 @@ private struct EmployeeRow: View {
 
 struct EmployeeDetailView: View {
     let employee: Employee
-    var cloudStatus: EmployeeCloudStatus = .notChecked
+    var cloudItem: EmployeeSyncStatusItem?
+
+    private var cloudStatus: EmployeeCloudStatus {
+        cloudItem?.status ?? .notChecked
+    }
 
     private var enrollmentPhotos: [(pose: FacePose, data: Data)] {
         EnrollmentPhotoStore.loadAll(employeeId: employee.id)
@@ -217,6 +324,13 @@ struct EmployeeDetailView: View {
                 LabeledContent("Enrolled", value: employee.isEnrolled ? "Yes" : "No")
                 LabeledContent("IMS status") {
                     CloudStatusBadge(status: cloudStatus)
+                }
+                if let cloudItem {
+                    LabeledContent("Checked", value: cloudItem.checkedAt.attendanceDisplay)
+                    if let imsUpdatedAt = cloudItem.imsUpdatedAt {
+                        LabeledContent("IMS updated", value: imsUpdatedAt.attendanceDisplay)
+                    }
+                    LabeledContent("Local sync", value: cloudItem.localSyncStatus.displayName)
                 }
                 if let serverId = employee.serverId, !serverId.isEmpty {
                     LabeledContent("Server ID", value: serverId)

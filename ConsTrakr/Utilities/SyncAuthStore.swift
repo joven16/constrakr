@@ -12,10 +12,29 @@ enum SyncAuthStore {
     private static let service = "com.constrakr.sync-auth"
     private static let tokenAccount = "access-token"
     private static let usernameKey = "sync.adminUsername"
+    private static let tokenExpiresAtKey = "sync.tokenExpiresAt"
 
-    static func saveSession(token: String, username: String) {
+    static func saveSession(token: String, username: String, expiresIn: Int? = nil) {
         saveToken(token)
         UserDefaults.standard.set(username, forKey: usernameKey)
+        if let expiresIn, expiresIn > 0 {
+            let expiresAt = Date().addingTimeInterval(TimeInterval(expiresIn))
+            UserDefaults.standard.set(expiresAt.timeIntervalSince1970, forKey: tokenExpiresAtKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: tokenExpiresAtKey)
+        }
+    }
+
+    static func isTokenExpired(leeway seconds: TimeInterval = 120) -> Bool {
+        let expiresAt = UserDefaults.standard.double(forKey: tokenExpiresAtKey)
+        guard expiresAt > 0 else { return false }
+        return Date().timeIntervalSince1970 >= expiresAt - seconds
+    }
+
+    static func tokenExpiryDescription() -> String? {
+        let expiresAt = UserDefaults.standard.double(forKey: tokenExpiresAtKey)
+        guard expiresAt > 0 else { return nil }
+        return Date(timeIntervalSince1970: expiresAt).formatted(date: .omitted, time: .shortened)
     }
 
     static func loadToken() -> String? {
@@ -29,6 +48,7 @@ enum SyncAuthStore {
     static func clear() {
         deleteKeychain(account: tokenAccount)
         UserDefaults.standard.removeObject(forKey: usernameKey)
+        UserDefaults.standard.removeObject(forKey: tokenExpiresAtKey)
     }
 
     private static func saveToken(_ token: String) {

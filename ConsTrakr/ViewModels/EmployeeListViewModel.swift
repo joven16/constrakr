@@ -12,7 +12,8 @@ final class EmployeeListViewModel {
     var searchText = ""
 
     private(set) var employees: [Employee] = []
-    private(set) var errorMessage: String?
+    private(set) var listErrorMessage: String?
+    private(set) var cloudCheckErrorMessage: String?
     private(set) var cloudReport: EmployeeSyncReport?
     private(set) var isCheckingCloud = false
 
@@ -31,22 +32,52 @@ final class EmployeeListViewModel {
         guard let employeeService else { return }
         do {
             employees = try employeeService.allEmployees(search: searchText)
-            errorMessage = nil
+            listErrorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            listErrorMessage = error.localizedDescription
         }
+    }
+
+    private func reloadEmployeesOnly() {
+        guard let employeeService else { return }
+        employees = (try? employeeService.allEmployees(search: searchText)) ?? employees
     }
 
     func cloudStatus(for employeeId: UUID) -> EmployeeCloudStatus {
         cloudReport?.status(for: employeeId) ?? .notChecked
     }
 
-    func checkCloudSync() async {
-        guard let modelContext else { return }
+    func cloudItem(for employeeId: UUID) -> EmployeeSyncStatusItem? {
+        cloudReport?.item(for: employeeId)
+    }
+
+    /// Manual sync — check IMS, upload employees/embeddings/DTR, refresh status.
+    func syncNow() async {
+        guard syncQueue != nil else {
+            cloudCheckErrorMessage = "Sync is not ready yet. Try again."
+            return
+        }
         isCheckingCloud = true
         defer {
             isCheckingCloud = false
-            refresh()
+            reloadEmployeesOnly()
+        }
+
+        await syncQueue?.syncNow()
+        cloudReport = syncQueue?.lastEmployeeSyncReport
+        cloudCheckErrorMessage = syncQueue?.lastError
+    }
+
+    /// IMS status check only (no upload).
+    func checkCloudOnly() async {
+        guard let modelContext else {
+            cloudCheckErrorMessage = "Employee list is not ready yet. Try again."
+            return
+        }
+        isCheckingCloud = true
+        defer {
+            isCheckingCloud = false
+            reloadEmployeesOnly()
         }
 
         do {
@@ -55,10 +86,24 @@ final class EmployeeListViewModel {
             } else {
                 cloudReport = try await EmployeeSyncChecker.check(context: modelContext, repair: true)
             }
-            errorMessage = nil
+            cloudCheckErrorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            cloudReport = nil
+            cloudCheckErrorMessage = error.localizedDescription
         }
+    }
+
+    /// Check IMS status/dates, then run sync (same as manual Sync Now).
+    func checkAndSyncCloud() async {
+        await syncNow()
+    }
+
+    func checkCloudSync() async {
+        await checkCloudOnly()
+    }
+
+    func applyCloudReport(_ report: EmployeeSyncReport?) {
+        cloudReport = report
     }
 
     func delete(_ employee: Employee) {
@@ -67,7 +112,7 @@ final class EmployeeListViewModel {
             try employeeService.delete(employee)
             refresh()
         } catch {
-            errorMessage = error.localizedDescription
+            listErrorMessage = error.localizedDescription
         }
     }
 }

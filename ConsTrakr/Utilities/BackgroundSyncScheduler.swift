@@ -2,7 +2,7 @@
 //  BackgroundSyncScheduler.swift
 //  ConsTrakr
 //
-//  Foreground timer (1 min) + BGAppRefresh + flush when app backgrounds.
+//  Foreground timer (5 min) + BGAppRefresh + flush when app backgrounds.
 //
 
 import BackgroundTasks

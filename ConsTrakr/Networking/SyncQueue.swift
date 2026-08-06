@@ -13,7 +13,10 @@ import SwiftData
 @Observable
 final class SyncQueue {
     private(set) var isSyncing = false
+    /// Last time a sync pass completed successfully (data reached IMS or nothing pending).
     private(set) var lastSyncDate: Date?
+    /// Last time a sync was attempted (success or failure).
+    private(set) var lastSyncAttemptDate: Date?
     private(set) var lastError: String?
     private(set) var pendingCount = 0
     private(set) var lastRestoreMessage: String?
@@ -79,6 +82,7 @@ final class SyncQueue {
     func syncNow() async {
         guard !isSyncing, let context else { return }
 
+        lastSyncAttemptDate = Date()
         await AdminSession.shared.restorePersistedSession()
 
         if await APIService.shared.isUsingPlaceholderHost() {
@@ -86,33 +90,49 @@ final class SyncQueue {
             return
         }
 
+        if SyncAuthStore.isTokenExpired() {
+            AdminSession.shared.handleUnauthorized()
+            lastError = "IMS sign-in expired. Open Settings → IMS Sync and sign in again."
+            return
+        }
+
         guard AdminSession.shared.isAuthenticated else {
-            lastError = NetworkError.unauthorized.localizedDescription
+            lastError = "Sign in under Settings → IMS Sync before syncing."
             return
         }
         guard await APIService.shared.hasAuthToken() else {
-            lastError = NetworkError.unauthorized.localizedDescription
+            lastError = "Sign in under Settings → IMS Sync before syncing."
             AdminSession.shared.handleUnauthorized()
             return
         }
 
         isSyncing = true
-        lastError = nil
         defer {
             isSyncing = false
             refreshPendingCount()
         }
 
+        // 1. Check IMS employee status + dates (repair stale local ids).
+        lastEmployeeSyncReport = try? await EmployeeSyncChecker.check(context: context, repair: true)
+
         do {
+            // 2. Auto-sync uploads (employees not on IMS, then embeddings / DTR for those on IMS).
             let summary = try await syncService.performPushSync(context: context)
             lastPushSummary = summary
             lastSyncDate = Date()
-            lastError = nil
+            if summary.employeesStillLocalOnly > 0 || summary.hasChildUploadIssues || summary.employeesUploadFailed > 0 {
+                lastError = summary.failureMessage
+            } else {
+                lastError = nil
+            }
+            // 3. Refresh IMS status + dates after sync.
             lastEmployeeSyncReport = try? await EmployeeSyncChecker.check(context: context, repair: false)
             BackgroundSyncScheduler.scheduleNextSync()
         } catch NetworkError.unauthorized {
             AdminSession.shared.handleUnauthorized()
-            lastError = NetworkError.unauthorized.localizedDescription
+            lastError = "IMS sign-in expired or invalid. Sign in again under Settings."
+        } catch NetworkError.offline {
+            lastError = NetworkError.offline.localizedDescription
         } catch {
             lastError = error.localizedDescription
         }
@@ -130,6 +150,7 @@ final class SyncQueue {
         let summary = try await syncService.restoreFromServer(context: context)
         lastRestoreMessage = "Restored \(summary.employees) employees, \(summary.embeddings) embeddings, \(summary.enrollmentPhotos) photos."
         lastSyncDate = Date()
+        lastSyncAttemptDate = Date()
         return summary
     }
 
@@ -150,9 +171,6 @@ final class SyncQueue {
     func checkEmployeesOnIMS() async throws -> EmployeeSyncReport {
         guard let context else { throw NetworkError.invalidResponse }
         await AdminSession.shared.restorePersistedSession()
-        guard AdminSession.shared.isAuthenticated else {
-            throw NetworkError.unauthorized
-        }
         return try await EmployeeSyncChecker.check(context: context, repair: true)
     }
 }

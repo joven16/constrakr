@@ -19,6 +19,10 @@ final class AdminSession {
 
     func restorePersistedSession() async {
         guard let token = SyncAuthStore.loadToken() else { return }
+        if SyncAuthStore.isTokenExpired() {
+            handleUnauthorized()
+            return
+        }
         await APIService.shared.setAuthToken(token)
         username = SyncAuthStore.loadUsername()
         isAuthenticated = true

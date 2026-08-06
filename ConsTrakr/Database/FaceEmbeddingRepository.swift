@@ -63,6 +63,33 @@ final class FaceEmbeddingRepository {
         try context.save()
     }
 
+    /// Backfill sync rows from the employee's encrypted enrollment blob.
+    func ensureEntitiesForEmployee(_ employee: Employee) throws {
+        guard employee.isEnrolled else { return }
+
+        let existing = try fetch(forEmployeeLocalId: employee.id)
+        let existingPoses = Set(existing.map(\.poseRaw))
+        var toInsert: [FaceEmbeddingEntity] = []
+
+        for embedding in employee.faceEmbeddings {
+            guard !existingPoses.contains(embedding.pose.rawValue) else { continue }
+            let ciphertext = try EmbeddingCrypto.encryptValues(embedding.values)
+            toInsert.append(
+                FaceEmbeddingEntity(
+                    employeeLocalId: employee.id,
+                    employeeServerId: employee.serverId,
+                    pose: embedding.pose,
+                    encryptedValues: ciphertext,
+                    syncStatus: .pending
+                )
+            )
+        }
+
+        if !toInsert.isEmpty {
+            try saveAll(toInsert)
+        }
+    }
+
     func upsertFromRemote(_ dto: FaceEmbeddingDTO, employeeLocalId: UUID) throws {
         // Prefer match by serverId to prevent duplicates on restore.
         if let serverId = dto.serverId {

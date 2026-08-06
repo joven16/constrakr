@@ -61,17 +61,17 @@ final class SyncService {
 
         let empRepo = EmployeeRepository(context: context)
         _ = try empRepo.repairStaleSyncState()
-
-        if AdminSession.shared.isAuthenticated, await api.hasAuthToken() {
-            let preCheck = try await EmployeeSyncChecker.check(context: context, repair: true)
-            summary.apply(preCheck)
+        do {
+            try EmployeeChildSyncPreparer.prepareAll(context: context, persist: true)
+        } catch {
+            // Non-fatal — upload steps also prepare per employee.
         }
 
         guard try hasPendingPushWork(context: context) else {
             summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
-            if summary.employeesLocalTotal == 0 {
-                summary.employeesLocalTotal = try empRepo.count()
-            }
+            summary.employeesLocalTotal = try empRepo.count()
+            let report = try await EmployeeSyncChecker.check(context: context, repair: false)
+            summary.apply(report)
             return summary
         }
 
@@ -81,8 +81,8 @@ final class SyncService {
 
         summary = try await uploadPendingEmployees(context: context, summary: summary)
         try await uploadUpdatedEmployees(context: context)
-        try await uploadPendingEmbeddings(context: context)
-        try await uploadPendingEnrollmentPhotos(context: context)
+        summary = try await uploadPendingEmbeddings(context: context, summary: summary)
+        summary = try await uploadPendingEnrollmentPhotos(context: context, summary: summary)
         try await uploadPendingAttendance(context: context)
 
         let verify = try await verifyEmployeesOnServer(context: context)
@@ -102,10 +102,7 @@ final class SyncService {
         }
 
         if summary.employeesStillLocalOnly > 0 {
-            throw NetworkError.serverError(
-                statusCode: 0,
-                message: summary.failureMessage
-            )
+            summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
         }
 
         return summary
@@ -119,16 +116,49 @@ final class SyncService {
         var employeesResetForRetry = 0
         var employeesLocalTotal = 0
         var employeesConfirmedOnIMS = 0
+        var embeddingsUploaded = 0
+        var embeddingsFailed = 0
+        var photosUploaded = 0
+        var photosFailed = 0
+        var employeesUploadFailed = 0
+        var lastUploadError: String?
 
         var successMessage: String {
             if employeesPosted == 0 && employeesLinked == 0 {
-                return "\(employeesConfirmedOnIMS)/\(employeesLocalTotal) employees confirmed on IMS (\(employeesOnServer) on server)."
+                var parts = ["\(employeesConfirmedOnIMS)/\(employeesLocalTotal) employees on IMS"]
+                if embeddingsUploaded > 0 || photosUploaded > 0 {
+                    parts.append("\(embeddingsUploaded) embeddings, \(photosUploaded) photos uploaded")
+                }
+                return parts.joined(separator: " · ")
             }
             return "Uploaded \(employeesPosted), linked \(employeesLinked). \(employeesConfirmedOnIMS)/\(employeesLocalTotal) on IMS."
         }
 
         var failureMessage: String {
-            "\(employeesStillLocalOnly) employee(s) still not on IMS. Confirmed: \(employeesConfirmedOnIMS)/\(employeesLocalTotal). Posted: \(employeesPosted)."
+            var parts: [String] = []
+            if employeesStillLocalOnly > 0 {
+                parts.append("\(employeesStillLocalOnly) employee(s) still not on IMS")
+            }
+            if employeesUploadFailed > 0 {
+                parts.append("\(employeesUploadFailed) employee upload(s) failed")
+            }
+            if embeddingsFailed > 0 {
+                parts.append("\(embeddingsFailed) embedding(s) failed to upload")
+            }
+            if photosFailed > 0 {
+                parts.append("\(photosFailed) photo(s) failed to upload")
+            }
+            if parts.isEmpty {
+                return lastUploadError ?? "Sync finished with issues. Tap Sync Now to retry."
+            }
+            if let lastUploadError, !parts.contains(where: { $0.contains(lastUploadError) }) {
+                return parts.joined(separator: ". ") + ". " + lastUploadError
+            }
+            return parts.joined(separator: ". ") + "."
+        }
+
+        var hasChildUploadIssues: Bool {
+            embeddingsFailed > 0 || photosFailed > 0 || employeesUploadFailed > 0
         }
 
         mutating func apply(_ report: EmployeeSyncReport) {
@@ -173,14 +203,17 @@ final class SyncService {
 
         for employee in pending {
             if let serverId = APIDecoding.normalizedServerId(employee.serverId) {
-                employee.serverId = serverId
-                employee.syncStatus = .synced
-                try repo.update(employee, persist: false)
+                try linkEmployeeToServer(
+                    employee,
+                    serverId: serverId,
+                    context: context,
+                    persist: false
+                )
                 continue
             }
 
             if let remote = remoteIndex.match(for: employee),
-               let serverId = APIDecoding.normalizedServerId(remote.serverId) {
+               let serverId = remoteIndex.resolvedServerId(for: employee) {
                 try linkEmployeeToServer(
                     employee,
                     serverId: serverId,
@@ -223,7 +256,7 @@ final class SyncService {
                 if case .serverError(409, _) = error {
                     let refreshed = try await remoteEmployeeIndex(forceRefresh: true)
                     if let remote = refreshed.match(for: employee),
-                       let serverId = APIDecoding.normalizedServerId(remote.serverId) {
+                       let serverId = refreshed.resolvedServerId(for: employee) {
                         try linkEmployeeToServer(
                             employee,
                             serverId: serverId,
@@ -236,13 +269,13 @@ final class SyncService {
                 }
                 employee.syncStatus = .failed
                 try? repo.update(employee, persist: false)
-                try persist(context)
-                throw error
+                summary.employeesUploadFailed += 1
+                summary.lastUploadError = error.localizedDescription
             } catch {
                 employee.syncStatus = .failed
                 try? repo.update(employee, persist: false)
-                try persist(context)
-                throw error
+                summary.employeesUploadFailed += 1
+                summary.lastUploadError = error.localizedDescription
             }
         }
 
@@ -323,19 +356,26 @@ final class SyncService {
             } catch {
                 employee.syncStatus = .failed
                 try? repo.update(employee, persist: false)
-                try persist(context)
-                throw error
             }
         }
 
         try persist(context)
     }
 
-    private func uploadPendingEmbeddings(context: ModelContext) async throws {
+    private func uploadPendingEmbeddings(
+        context: ModelContext,
+        summary: PushSyncSummary
+    ) async throws -> PushSyncSummary {
+        var summary = summary
         let embRepo = FaceEmbeddingRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
+
+        for employee in try empRepo.fetchAll() where employee.serverId != nil && employee.isEnrolled {
+            try EmployeeChildSyncPreparer.prepare(for: employee, context: context, persist: false)
+        }
+
         let pending = try embRepo.fetchPendingSync()
-        guard !pending.isEmpty else { return }
+        guard !pending.isEmpty else { return summary }
 
         var ready: [FaceEmbeddingEntity] = []
         for entity in pending {
@@ -371,30 +411,32 @@ final class SyncService {
                 entity.serverId = response.serverId
                 entity.syncStatus = .synced
                 try embRepo.update(entity, persist: false)
+                summary.embeddingsUploaded += 1
             } catch {
                 entity.syncStatus = .failed
                 try? embRepo.update(entity, persist: false)
+                summary.embeddingsFailed += 1
             }
         }
 
         try persist(context)
+        return summary
     }
 
-    private func uploadPendingEnrollmentPhotos(context: ModelContext) async throws {
+    private func uploadPendingEnrollmentPhotos(
+        context: ModelContext,
+        summary: PushSyncSummary
+    ) async throws -> PushSyncSummary {
+        var summary = summary
         let photoRepo = FaceEnrollmentPhotoRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
 
-        let pending = try photoRepo.fetchPendingSync()
-        guard !pending.isEmpty else { return }
-
-        let employeeIds = Set(pending.map(\.employeeLocalId))
-        for employeeId in employeeIds {
-            if let employee = try empRepo.fetch(id: employeeId), employee.serverId != nil {
-                try photoRepo.ensureEntitiesForEmployee(employee)
-            }
+        for employee in try empRepo.fetchAll() where employee.serverId != nil && employee.isEnrolled {
+            try EmployeeChildSyncPreparer.prepare(for: employee, context: context, persist: false)
         }
 
         let refreshedPending = try photoRepo.fetchPendingSync()
+        guard !refreshedPending.isEmpty else { return summary }
         var ready: [FaceEnrollmentPhotoEntity] = []
 
         for entity in refreshedPending {
@@ -443,13 +485,16 @@ final class SyncService {
                 entity.serverId = response.serverId
                 entity.syncStatus = .synced
                 try photoRepo.update(entity, persist: false)
+                summary.photosUploaded += 1
             } catch {
                 entity.syncStatus = .failed
                 try? photoRepo.update(entity, persist: false)
+                summary.photosFailed += 1
             }
         }
 
         try persist(context)
+        return summary
     }
 
     private func uploadPendingAttendance(context: ModelContext) async throws {

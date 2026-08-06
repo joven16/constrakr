@@ -117,6 +117,9 @@ struct DTRView: View {
                     Text("Employees: \(report.confirmedOnIMS)/\(report.localTotal) on IMS")
                         .font(.caption2)
                         .foregroundStyle(report.confirmedOnIMS == report.localTotal ? .green : .orange)
+                    Text("Checked: \(report.checkedAt.attendanceDisplay)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 } else if let last = viewModel.lastSyncDate {
                     Text("Last sync: \(last.attendanceDisplay)")
                         .font(.caption2)
