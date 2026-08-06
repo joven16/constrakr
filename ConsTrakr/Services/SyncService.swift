@@ -120,8 +120,10 @@ final class SyncService {
         var embeddingsFailed = 0
         var photosUploaded = 0
         var photosFailed = 0
+        var photosSkippedNoFile = 0
         var employeesUploadFailed = 0
         var lastUploadError: String?
+        var lastPhotoUploadError: String?
 
         var successMessage: String {
             if employeesPosted == 0 && employeesLinked == 0 {
@@ -148,6 +150,12 @@ final class SyncService {
             if photosFailed > 0 {
                 parts.append("\(photosFailed) photo(s) failed to upload")
             }
+            if photosSkippedNoFile > 0 {
+                parts.append("\(photosSkippedNoFile) photo(s) missing on device")
+            }
+            if let lastPhotoUploadError, photosFailed > 0 {
+                parts.append(lastPhotoUploadError)
+            }
             if parts.isEmpty {
                 return lastUploadError ?? "Sync finished with issues. Tap Sync Now to retry."
             }
@@ -158,7 +166,7 @@ final class SyncService {
         }
 
         var hasChildUploadIssues: Bool {
-            embeddingsFailed > 0 || photosFailed > 0 || employeesUploadFailed > 0
+            embeddingsFailed > 0 || photosFailed > 0 || photosSkippedNoFile > 0 || employeesUploadFailed > 0
         }
 
         mutating func apply(_ report: EmployeeSyncReport) {
@@ -370,7 +378,7 @@ final class SyncService {
         let embRepo = FaceEmbeddingRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
 
-        for employee in try empRepo.fetchAll() where employee.serverId != nil && employee.isEnrolled {
+        for employee in try empRepo.fetchAll() where EmployeeChildSyncPreparer.shouldUploadEmbeddings(for: employee) {
             try EmployeeChildSyncPreparer.prepare(for: employee, context: context, persist: false)
         }
 
@@ -387,10 +395,12 @@ final class SyncService {
 
             if entity.employeeServerId == nil,
                let parent = try empRepo.fetch(id: entity.employeeLocalId),
-               let serverId = parent.serverId {
+               let serverId = APIDecoding.normalizedServerId(parent.serverId) {
                 entity.employeeServerId = serverId
             }
-            guard entity.employeeServerId != nil else { continue }
+            guard let parent = try empRepo.fetch(id: entity.employeeLocalId),
+                  APIDecoding.normalizedServerId(parent.serverId) != nil else { continue }
+            entity.employeeServerId = APIDecoding.normalizedServerId(parent.serverId)
             ready.append(entity)
         }
 
@@ -398,10 +408,15 @@ final class SyncService {
             entity.syncStatus = .syncing
             try embRepo.update(entity, persist: false)
 
+            guard let parent = try empRepo.fetch(id: entity.employeeLocalId),
+                  let serverId = APIDecoding.normalizedServerId(parent.serverId) else {
+                return
+            }
+
             let dto = FaceEmbeddingDTO(
                 serverId: nil,
                 localId: entity.id,
-                employeeServerId: entity.employeeServerId,
+                employeeServerId: serverId,
                 employeeLocalId: entity.employeeLocalId,
                 pose: entity.poseRaw,
                 encryptedValuesBase64: entity.encryptedValues.base64EncodedString()
@@ -431,7 +446,7 @@ final class SyncService {
         let photoRepo = FaceEnrollmentPhotoRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
 
-        for employee in try empRepo.fetchAll() where employee.serverId != nil && employee.isEnrolled {
+        for employee in try empRepo.fetchAll() where EmployeeChildSyncPreparer.shouldUploadPhotos(for: employee) {
             try EmployeeChildSyncPreparer.prepare(for: employee, context: context, persist: false)
         }
 
@@ -446,17 +461,20 @@ final class SyncService {
                 continue
             }
 
-            if entity.employeeServerId == nil,
-               let parent = try empRepo.fetch(id: entity.employeeLocalId),
-               let serverId = parent.serverId {
-                entity.employeeServerId = serverId
+            guard let parent = try empRepo.fetch(id: entity.employeeLocalId),
+                  let serverId = APIDecoding.normalizedServerId(parent.serverId) else {
+                continue
             }
-            guard entity.employeeServerId != nil else { continue }
+            entity.employeeServerId = serverId
 
             guard EnrollmentPhotoStore.load(
                 employeeId: entity.employeeLocalId,
                 pose: entity.pose
             ) != nil else {
+                entity.syncStatus = .failed
+                try photoRepo.update(entity, persist: false)
+                summary.photosSkippedNoFile += 1
+                summary.lastPhotoUploadError = "Enrollment JPEG missing on device for \(entity.poseRaw)."
                 continue
             }
 
@@ -469,13 +487,18 @@ final class SyncService {
                 pose: entity.pose
             ) else { return }
 
+            guard let parent = try empRepo.fetch(id: entity.employeeLocalId),
+                  let serverId = APIDecoding.normalizedServerId(parent.serverId) else {
+                return
+            }
+
             entity.syncStatus = .syncing
             try photoRepo.update(entity, persist: false)
 
             let dto = FaceEnrollmentPhotoDTO(
                 serverId: nil,
                 localId: entity.id,
-                employeeServerId: entity.employeeServerId,
+                employeeServerId: serverId,
                 employeeLocalId: entity.employeeLocalId,
                 pose: entity.poseRaw,
                 jpegBase64: jpeg.base64EncodedString()
@@ -490,6 +513,7 @@ final class SyncService {
                 entity.syncStatus = .failed
                 try? photoRepo.update(entity, persist: false)
                 summary.photosFailed += 1
+                summary.lastPhotoUploadError = error.localizedDescription
             }
         }
 
