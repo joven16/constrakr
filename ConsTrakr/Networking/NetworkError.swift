@@ -9,6 +9,7 @@ enum NetworkError: LocalizedError {
     case offline
     case invalidURL
     case invalidResponse
+    case unauthorized
     case serverError(statusCode: Int, message: String?)
     case decodingFailed
     case encodingFailed
@@ -21,6 +22,8 @@ enum NetworkError: LocalizedError {
             return "Invalid API URL."
         case .invalidResponse:
             return "Unexpected response from the server."
+        case .unauthorized:
+            return "Sign in under Settings with your IMS sync admin account before syncing."
         case .serverError(let code, let message):
             return message ?? "Server error (\(code))."
         case .decodingFailed:

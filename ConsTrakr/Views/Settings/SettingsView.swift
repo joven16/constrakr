@@ -47,7 +47,7 @@ struct SettingsView: View {
                 if let status = viewModel.statusMessage {
                     Text(status)
                 } else {
-                    Text("Offline-first: roster, encrypted face templates, enrollment photos, depth data, and attendance upload when online.")
+                    Text("Auto sync uploads every 1 minute when online (foreground), when you leave the app, and via iOS background refresh. Sign in to IMS first.")
                 }
             }
 
@@ -66,23 +66,50 @@ struct SettingsView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     SecureField("Password", text: $viewModel.adminPassword)
-                    Button("Sign In to Restore") {
+                    Button("Sign In for Sync & Restore") {
                         Task { await viewModel.signInAdmin() }
                     }
                     .disabled(viewModel.adminUsername.isEmpty || viewModel.adminPassword.isEmpty)
                 }
             } header: {
-                Text("Device Restore")
+                Text("IMS Sync & Restore")
             } footer: {
-                Text("If this device is replaced, sign in and restore roster, face data, and attendance from your server. Face scanning works offline after restore.")
+                Text("Sign in with your IMS sync admin (e.g. sync_admin). Required for Sync Now and cloud restore to a replacement device.")
             }
 
-            Section("API") {
+            Section {
                 TextField("Base URL (HTTPS)", text: $viewModel.apiBaseURL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
+                TextField("Admin username", text: $viewModel.adminUsername)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                SecureField("Password (optional if signed in)", text: $viewModel.adminPassword)
                 Toggle("Auto Sync", isOn: $viewModel.autoSyncEnabled)
+                Button {
+                    Task { await viewModel.testAPIConnection() }
+                } label: {
+                    if viewModel.isTestingAPI {
+                        ProgressView()
+                    } else {
+                        Label("Test API Connection", systemImage: "network")
+                    }
+                }
+                .disabled(viewModel.isTestingAPI)
+            } header: {
+                Text("IMS API")
+            } footer: {
+                if let apiTestMessage = viewModel.apiTestMessage {
+                    Text(apiTestMessage)
+                        .foregroundStyle(
+                            viewModel.apiTestResult?.healthOK == true
+                                && viewModel.apiTestResult?.loginOK == true
+                                ? Color.green : Color.orange
+                        )
+                } else {
+                    Text("If you already signed in above, leave password blank — Test API checks your saved session. To test a new password, enter it here.")
+                }
             }
 
             Section {
@@ -175,6 +202,11 @@ struct SettingsView: View {
         }
         .onChange(of: syncQueue.pendingCount) { _, _ in
             viewModel.refresh()
+        }
+        .alert("API Connection Test", isPresented: $viewModel.showAPITestAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.apiTestMessage ?? "")
         }
     }
 }

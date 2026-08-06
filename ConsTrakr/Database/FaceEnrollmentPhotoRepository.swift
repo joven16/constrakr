@@ -49,9 +49,11 @@ final class FaceEnrollmentPhotoRepository {
         try context.save()
     }
 
-    func update(_ entity: FaceEnrollmentPhotoEntity) throws {
+    func update(_ entity: FaceEnrollmentPhotoEntity, persist: Bool = true) throws {
         entity.updatedAt = Date()
-        try context.save()
+        if persist {
+            try context.save()
+        }
     }
 
     func delete(forEmployeeLocalId employeeLocalId: UUID) throws {

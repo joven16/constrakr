@@ -14,35 +14,78 @@ enum APIEndpoint {
     case postEmployee
     case putEmployee(String)
     // Face embeddings (encrypted payloads only)
-    case getFaceEmbeddings
+    case getFaceEmbeddings(employeeServerId: String?)
     case postFaceEmbedding
     // Enrollment face JPEGs (one row per pose)
-    case getFaceEnrollmentPhotos
+    case getFaceEnrollmentPhotos(employeeServerId: String?)
     case postFaceEnrollmentPhoto
     // Attendance
-    case getAttendance
+    case getAttendance(employeeServerId: String?, startDate: Date?, endDate: Date?)
     case postAttendance
     // Auth / health (restore gate)
     case adminLogin
     case healthCheck
 
+    private static var root: String { AppConstants.apiPathPrefix }
+
     var path: String {
         switch self {
         case .getEmployees, .postEmployee:
-            return "/employees"
+            return "\(Self.root)/employees"
         case .putEmployee(let serverId):
-            return "/employees/\(serverId)"
+            return "\(Self.root)/employees/\(serverId)"
         case .getFaceEmbeddings, .postFaceEmbedding:
-            return "/face-embeddings"
+            return "\(Self.root)/face-embeddings"
         case .getFaceEnrollmentPhotos, .postFaceEnrollmentPhoto:
-            return "/face-enrollment-photos"
+            return "\(Self.root)/face-enrollment-photos"
         case .getAttendance, .postAttendance:
-            return "/attendance"
+            return "\(Self.root)/attendance"
         case .adminLogin:
-            return "/auth/admin/login"
+            return "\(Self.root)/auth/admin/login"
         case .healthCheck:
-            return "/health"
+            return "\(Self.root)/health"
         }
+    }
+
+    var queryItems: [URLQueryItem] {
+        switch self {
+        case .getFaceEmbeddings(let employeeServerId):
+            guard let employeeServerId else { return [] }
+            return [URLQueryItem(name: "employee_server_id", value: employeeServerId)]
+        case .getFaceEnrollmentPhotos(let employeeServerId):
+            guard let employeeServerId else { return [] }
+            return [URLQueryItem(name: "employee_server_id", value: employeeServerId)]
+        case .getAttendance(let employeeServerId, let startDate, let endDate):
+            var items: [URLQueryItem] = []
+            if let employeeServerId {
+                items.append(URLQueryItem(name: "employee_server_id", value: employeeServerId))
+            }
+            if let startDate {
+                items.append(URLQueryItem(name: "start_date", value: Self.dateQueryString(startDate)))
+            }
+            if let endDate {
+                items.append(URLQueryItem(name: "end_date", value: Self.dateQueryString(endDate)))
+            }
+            return items
+        default:
+            return []
+        }
+    }
+
+    var requiresAuth: Bool {
+        switch self {
+        case .adminLogin, .healthCheck:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private static func dateQueryString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
     }
 
     var method: String {
@@ -73,6 +116,17 @@ struct EmployeeDTO: Codable, Identifiable {
 
     var id: UUID { localId }
 
+    enum CodingKeys: String, CodingKey {
+        case serverId = "server_id"
+        case id
+        case localId = "local_id"
+        case employeeCode = "employee_code"
+        case firstName = "first_name"
+        case lastName = "last_name"
+        case department
+        case encryptedDepthSignatureBase64 = "encrypted_depth_signature_base64"
+    }
+
     init(
         serverId: String?,
         localId: UUID,
@@ -90,11 +144,63 @@ struct EmployeeDTO: Codable, Identifiable {
         self.department = department
         self.encryptedDepthSignatureBase64 = encryptedDepthSignatureBase64
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        serverId = try container.decodeIfPresent(String.self, forKey: .serverId)
+            ?? container.decodeIfPresent(String.self, forKey: .id)
+        localId = try container.decode(UUID.self, forKey: .localId)
+        employeeCode = try container.decode(String.self, forKey: .employeeCode)
+        firstName = try container.decode(String.self, forKey: .firstName)
+        lastName = try container.decode(String.self, forKey: .lastName)
+        department = try container.decode(String.self, forKey: .department)
+        encryptedDepthSignatureBase64 = try container.decodeIfPresent(
+            String.self,
+            forKey: .encryptedDepthSignatureBase64
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(serverId, forKey: .serverId)
+        try container.encode(localId, forKey: .localId)
+        try container.encode(employeeCode, forKey: .employeeCode)
+        try container.encode(firstName, forKey: .firstName)
+        try container.encode(lastName, forKey: .lastName)
+        try container.encode(department, forKey: .department)
+        try container.encodeIfPresent(encryptedDepthSignatureBase64, forKey: .encryptedDepthSignatureBase64)
+    }
 }
 
-struct EmployeeUpsertResponse: Codable {
+struct EmployeeUpsertResponse: Decodable {
     let serverId: String
     let localId: UUID
+
+    enum CodingKeys: String, CodingKey {
+        case serverId = "server_id"
+        case id
+        case localId = "local_id"
+    }
+
+    init(serverId: String, localId: UUID) {
+        self.serverId = serverId
+        self.localId = localId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let value = try container.decodeIfPresent(String.self, forKey: .serverId) {
+            serverId = value
+        } else if let value = try container.decodeIfPresent(String.self, forKey: .id) {
+            serverId = value
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.serverId,
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing server_id or id")
+            )
+        }
+        localId = try container.decode(UUID.self, forKey: .localId)
+    }
 }
 
 struct FaceEmbeddingDTO: Codable {
@@ -172,9 +278,35 @@ struct AdminLoginRequest: Codable {
     let password: String
 }
 
-struct AdminLoginResponse: Codable {
+struct AdminLoginResponse: Decodable {
     let accessToken: String
     let expiresIn: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case token
+        case expiresIn = "expires_in"
+    }
+
+    init(accessToken: String, expiresIn: Int?) {
+        self.accessToken = accessToken
+        self.expiresIn = expiresIn
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let token = try container.decodeIfPresent(String.self, forKey: .accessToken) {
+            accessToken = token
+        } else if let token = try container.decodeIfPresent(String.self, forKey: .token) {
+            accessToken = token
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.accessToken,
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing access_token or token")
+            )
+        }
+        expiresIn = try container.decodeIfPresent(Int.self, forKey: .expiresIn)
+    }
 }
 
 /// Legacy batch response shape kept for compatibility with older SyncQueue call sites.

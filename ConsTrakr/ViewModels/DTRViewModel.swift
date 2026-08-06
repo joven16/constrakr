@@ -13,8 +13,16 @@ final class DTRViewModel {
 
     private(set) var rows: [DTRRow] = []
     private(set) var errorMessage: String?
+    private(set) var pendingSyncCount = 0
+    private(set) var isSyncing = false
+    private(set) var isOnline = false
+    private(set) var syncStatusMessage: String?
+    private(set) var lastSyncDate: Date?
+    private(set) var cloudReport: EmployeeSyncReport?
 
     private var attendanceService: AttendanceService?
+    private var syncQueue: SyncQueue?
+    private var modelContext: ModelContext?
 
     struct DTRRow: Identifiable {
         let id: UUID
@@ -30,13 +38,61 @@ final class DTRViewModel {
         selectedDate.formatted(date: .complete, time: .omitted)
     }
 
-    func configure(context: ModelContext) {
+    func configure(context: ModelContext, syncQueue: SyncQueue) {
         attendanceService = AttendanceService(context: context)
+        modelContext = context
+        self.syncQueue = syncQueue
         refresh()
+    }
+
+    func syncNow() async {
+        guard AdminSession.shared.isAuthenticated else {
+            syncStatusMessage = "Sign in under More → Settings → IMS Sync & Restore."
+            return
+        }
+
+        isSyncing = true
+        syncStatusMessage = "Syncing employees, face data, and DTR…"
+        defer {
+            isSyncing = syncQueue?.isSyncing ?? false
+            refresh()
+        }
+
+        await syncQueue?.syncNow()
+
+        cloudReport = syncQueue?.lastEmployeeSyncReport
+
+        if let error = syncQueue?.lastError, !error.isEmpty {
+            syncStatusMessage = error
+        } else if let summary = syncQueue?.lastPushSummary {
+            syncStatusMessage = summary.successMessage
+            lastSyncDate = syncQueue?.lastSyncDate
+        } else {
+            let unsynced: Int
+            if let modelContext {
+                unsynced = (try? EmployeeRepository(context: modelContext).fetchPendingSync().count) ?? 0
+            } else {
+                unsynced = 0
+            }
+            if unsynced > 0 {
+                syncStatusMessage = "Sync finished but \(unsynced) employee(s) still not uploaded. Check sign-in and try again."
+            } else if syncQueue?.lastPushSummary == nil {
+                syncStatusMessage = "Sync complete — employees and DTR uploaded."
+            }
+            lastSyncDate = syncQueue?.lastSyncDate
+        }
     }
 
     func refresh() {
         guard let attendanceService else { return }
+        pendingSyncCount = syncQueue?.pendingCount ?? 0
+        isSyncing = syncQueue?.isSyncing ?? false
+        isOnline = NetworkMonitor.shared.isConnected
+        lastSyncDate = syncQueue?.lastSyncDate
+        if syncStatusMessage == nil, let error = syncQueue?.lastError, !error.isEmpty {
+            syncStatusMessage = error
+        }
+
         do {
             let calendar = Calendar.current
             let start = calendar.startOfDay(for: selectedDate)

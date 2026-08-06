@@ -87,9 +87,11 @@ final class AttendanceRepository {
         try context.save()
     }
 
-    func updateSyncStatus(_ attendance: Attendance, status: SyncStatus) throws {
+    func updateSyncStatus(_ attendance: Attendance, status: SyncStatus, persist: Bool = true) throws {
         attendance.syncStatus = status
-        try context.save()
+        if persist {
+            try context.save()
+        }
     }
 
     func pendingCount() throws -> Int {

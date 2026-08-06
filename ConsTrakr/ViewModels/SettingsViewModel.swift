@@ -22,6 +22,11 @@ final class SettingsViewModel {
     var autoSyncEnabled: Bool {
         didSet {
             UserDefaults.standard.set(autoSyncEnabled, forKey: AppConstants.UserDefaultsKeys.autoSyncEnabled)
+            if autoSyncEnabled {
+                syncQueue?.startAutoSync()
+            } else {
+                syncQueue?.stopAutoSync()
+            }
         }
     }
 
@@ -100,6 +105,11 @@ final class SettingsViewModel {
         CoreMLFaceRecognizer.shared.isReady ? 0.30...0.70 : 0.80...0.99
     }
 
+    private(set) var isTestingAPI = false
+    var apiTestResult: APITestResult?
+    private(set) var apiTestMessage: String?
+    var showAPITestAlert = false
+
     func configure(syncQueue: SyncQueue) {
         self.syncQueue = syncQueue
         refresh()
@@ -111,6 +121,9 @@ final class SettingsViewModel {
         isSyncing = syncQueue?.isSyncing ?? false
         isOnline = NetworkMonitor.shared.isConnected
         isAdminAuthenticated = AdminSession.shared.isAuthenticated
+        if adminUsername.isEmpty, let saved = SyncAuthStore.loadUsername() {
+            adminUsername = saved
+        }
         statusMessage = syncQueue?.lastError ?? syncQueue?.lastRestoreMessage
     }
 
@@ -118,9 +131,28 @@ final class SettingsViewModel {
         isSyncing = true
         await syncQueue?.syncNow()
         refresh()
-        if syncQueue?.lastError == nil {
-            statusMessage = "Sync completed (employees, embeddings, attendance)."
+        if let err = syncQueue?.lastError, !err.isEmpty {
+            statusMessage = err
+        } else if let summary = syncQueue?.lastPushSummary {
+            statusMessage = summary.successMessage
+        } else if syncQueue?.lastError == nil {
+            statusMessage = "Sync completed."
         }
+    }
+
+    func testAPIConnection() async {
+        isTestingAPI = true
+        apiTestMessage = "Testing connection…"
+        defer { isTestingAPI = false }
+
+        let result = await APITestRunner.run(
+            baseURL: apiBaseURL,
+            username: adminUsername,
+            password: adminPassword
+        )
+        apiTestResult = result
+        apiTestMessage = result.summary
+        showAPITestAlert = true
     }
 
     func signInAdmin() async {
@@ -128,7 +160,7 @@ final class SettingsViewModel {
             try await AdminSession.shared.signIn(username: adminUsername, password: adminPassword)
             adminPassword = ""
             refresh()
-            statusMessage = "Admin signed in. You can restore this device."
+            statusMessage = "Signed in to IMS. Sync and restore are enabled."
         } catch {
             statusMessage = error.localizedDescription
         }

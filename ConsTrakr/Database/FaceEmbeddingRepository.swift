@@ -50,9 +50,11 @@ final class FaceEmbeddingRepository {
         try context.save()
     }
 
-    func update(_ entity: FaceEmbeddingEntity) throws {
+    func update(_ entity: FaceEmbeddingEntity, persist: Bool = true) throws {
         entity.updatedAt = Date()
-        try context.save()
+        if persist {
+            try context.save()
+        }
     }
 
     func delete(forEmployeeLocalId employeeLocalId: UUID) throws {

@@ -2,8 +2,7 @@
 //  APIService.swift
 //  ConsTrakr
 //
-//  CHANGE: Placeholder URLSession async/await client for the required endpoints.
-//  HTTPS is enforced; example.com host simulates success for offline demos.
+//  HTTPS client for IMS `/constrakr-api` sync + restore.
 //
 
 import Foundation
@@ -13,13 +12,13 @@ actor APIService {
 
     private let session: URLSession
     private var baseURLString: String
-    /// INTEGRATION: Set from AdminSession after real login.
     private var authToken: String?
 
-    init(session: URLSession = .shared, baseURL: String = AppConstants.apiBaseURL) {
+    init(session: URLSession = APIService.makeSyncSession(), baseURL: String = AppConstants.apiBaseURL) {
         self.session = session
         let stored = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiBaseURL) ?? baseURL
         self.baseURLString = Self.ensuringHTTPS(stored)
+        self.authToken = SyncAuthStore.loadToken()
     }
 
     func updateBaseURL(_ url: String) {
@@ -31,67 +30,98 @@ actor APIService {
         authToken = token
     }
 
+    /// Host root for display / tests.
+    func currentHostRoot() -> String {
+        normalizedHostRoot()
+    }
+
+    func isUsingPlaceholderHost() -> Bool {
+        isPlaceholderHost
+    }
+
+    func hasAuthToken() -> Bool {
+        authToken != nil
+    }
+
     // MARK: - Auth
 
-    /// PLACEHOLDER: Admin login for restore-on-new-device.
     func adminLogin(username: String, password: String) async throws -> AdminLoginResponse {
+        try rejectIfUnconfigured()
         var request = try makeRequest(for: .adminLogin)
         request.httpBody = try JSONEncoder.api.encode(AdminLoginRequest(username: username, password: password))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if isPlaceholderHost {
-            // Demo credentials for local development without a backend.
+        if isDemoHost {
             guard !username.isEmpty, !password.isEmpty else {
                 throw NetworkError.serverError(statusCode: 401, message: "Invalid admin credentials.")
             }
             let token = "demo-admin-token-\(UUID().uuidString)"
             authToken = token
-            return AdminLoginResponse(accessToken: token, expiresIn: 3600)
+            SyncAuthStore.saveSession(token: token, username: username)
+            return AdminLoginResponse(accessToken: token, expiresIn: 86400)
         }
 
         let (data, response) = try await session.data(for: request)
-        try validate(response)
-        let decoded = try JSONDecoder.api.decode(AdminLoginResponse.self, from: data)
-        authToken = decoded.accessToken
-        return decoded
+        try validate(data: data, response: response)
+        do {
+            let decoded = try JSONDecoder.api.decode(AdminLoginResponse.self, from: data)
+            authToken = decoded.accessToken
+            SyncAuthStore.saveSession(token: decoded.accessToken, username: username)
+            return decoded
+        } catch {
+            let snippet = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .prefix(240)
+            throw NetworkError.serverError(
+                statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                message: "Login response invalid: \(snippet.map(String.init) ?? "decode error")"
+            )
+        }
+    }
+
+    /// Confirms the saved JWT still works (used when Test API runs after sign-in).
+    func verifyAuthSession() async throws {
+        try rejectIfUnconfigured()
+        _ = try await getEmployees()
     }
 
     func healthCheck() async throws -> Bool {
+        try rejectIfUnconfigured()
+        if isDemoHost { return true }
         let request = try makeRequest(for: .healthCheck)
-        if isPlaceholderHost { return true }
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw NetworkError.invalidResponse }
-        return (200..<300).contains(http.statusCode)
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        return true
     }
 
-    // MARK: - Employees  GET/POST /employees
+    // MARK: - Employees
 
     func getEmployees() async throws -> [EmployeeDTO] {
+        try rejectIfUnconfigured()
         let request = try makeRequest(for: .getEmployees)
-        if isPlaceholderHost {
-            // PLACEHOLDER restore payload — empty unless you seed a demo catalog.
-            return []
-        }
+        if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
-        try validate(response)
-        return try JSONDecoder.api.decode([EmployeeDTO].self, from: data)
+        try validate(data: data, response: response)
+        return try Self.decodeEmployeeList(from: data)
     }
 
     func postEmployee(_ dto: EmployeeDTO) async throws -> EmployeeUpsertResponse {
+        try rejectIfUnconfigured()
         var request = try makeRequest(for: .postEmployee)
         request.httpBody = try JSONEncoder.api.encode(dto)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if isPlaceholderHost {
+        if isDemoHost {
             return EmployeeUpsertResponse(serverId: "srv-emp-\(dto.localId.uuidString)", localId: dto.localId)
         }
 
         let (data, response) = try await session.data(for: request)
-        try validate(response)
-        return try JSONDecoder.api.decode(EmployeeUpsertResponse.self, from: data)
+        try validate(data: data, response: response)
+        return try APIDecoding.decodeEmployeeUpsert(from: data, expectedLocalId: dto.localId)
     }
 
     func putEmployee(_ dto: EmployeeDTO) async throws -> EmployeeUpsertResponse {
+        try rejectIfUnconfigured()
         guard let serverId = dto.serverId else {
             throw NetworkError.invalidURL
         }
@@ -99,55 +129,59 @@ actor APIService {
         request.httpBody = try JSONEncoder.api.encode(dto)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if isPlaceholderHost {
+        if isDemoHost {
             return EmployeeUpsertResponse(serverId: serverId, localId: dto.localId)
         }
 
         let (data, response) = try await session.data(for: request)
-        try validate(response)
-        return try JSONDecoder.api.decode(EmployeeUpsertResponse.self, from: data)
+        try validate(data: data, response: response)
+        return try APIDecoding.decodeEmployeeUpsert(from: data, expectedLocalId: dto.localId)
     }
 
-    // MARK: - Face embeddings  GET/POST /face-embeddings
+    // MARK: - Face embeddings
 
-    func getFaceEmbeddings() async throws -> [FaceEmbeddingDTO] {
-        let request = try makeRequest(for: .getFaceEmbeddings)
-        if isPlaceholderHost { return [] }
+    func getFaceEmbeddings(employeeServerId: String? = nil) async throws -> [FaceEmbeddingDTO] {
+        try rejectIfUnconfigured()
+        let request = try makeRequest(for: .getFaceEmbeddings(employeeServerId: employeeServerId))
+        if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
-        try validate(response)
+        try validate(data: data, response: response)
         return try JSONDecoder.api.decode([FaceEmbeddingDTO].self, from: data)
     }
 
     func postFaceEmbedding(_ dto: FaceEmbeddingDTO) async throws -> FaceEmbeddingUpsertResponse {
+        try rejectIfUnconfigured()
         var request = try makeRequest(for: .postFaceEmbedding)
         request.httpBody = try JSONEncoder.api.encode(dto)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if isPlaceholderHost {
+        if isDemoHost {
             return FaceEmbeddingUpsertResponse(serverId: "srv-emb-\(dto.localId.uuidString)", localId: dto.localId)
         }
 
         let (data, response) = try await session.data(for: request)
-        try validate(response)
+        try validate(data: data, response: response)
         return try JSONDecoder.api.decode(FaceEmbeddingUpsertResponse.self, from: data)
     }
 
-    // MARK: - Enrollment photos  GET/POST /face-enrollment-photos
+    // MARK: - Enrollment photos
 
-    func getFaceEnrollmentPhotos() async throws -> [FaceEnrollmentPhotoDTO] {
-        let request = try makeRequest(for: .getFaceEnrollmentPhotos)
-        if isPlaceholderHost { return [] }
+    func getFaceEnrollmentPhotos(employeeServerId: String? = nil) async throws -> [FaceEnrollmentPhotoDTO] {
+        try rejectIfUnconfigured()
+        let request = try makeRequest(for: .getFaceEnrollmentPhotos(employeeServerId: employeeServerId))
+        if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
-        try validate(response)
+        try validate(data: data, response: response)
         return try JSONDecoder.api.decode([FaceEnrollmentPhotoDTO].self, from: data)
     }
 
     func postFaceEnrollmentPhoto(_ dto: FaceEnrollmentPhotoDTO) async throws -> FaceEnrollmentPhotoUpsertResponse {
+        try rejectIfUnconfigured()
         var request = try makeRequest(for: .postFaceEnrollmentPhoto)
         request.httpBody = try JSONEncoder.api.encode(dto)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if isPlaceholderHost {
+        if isDemoHost {
             return FaceEnrollmentPhotoUpsertResponse(
                 serverId: "srv-photo-\(dto.localId.uuidString)",
                 localId: dto.localId
@@ -155,42 +189,102 @@ actor APIService {
         }
 
         let (data, response) = try await session.data(for: request)
-        try validate(response)
+        try validate(data: data, response: response)
         return try JSONDecoder.api.decode(FaceEnrollmentPhotoUpsertResponse.self, from: data)
     }
 
-    // MARK: - Attendance  GET/POST /attendance
+    // MARK: - Attendance
 
-    func getAttendance() async throws -> [AttendanceDTO] {
-        let request = try makeRequest(for: .getAttendance)
-        if isPlaceholderHost { return [] }
+    func getAttendance(
+        employeeServerId: String? = nil,
+        startDate: Date? = nil,
+        endDate: Date? = nil
+    ) async throws -> [AttendanceDTO] {
+        try rejectIfUnconfigured()
+        let request = try makeRequest(
+            for: .getAttendance(
+                employeeServerId: employeeServerId,
+                startDate: startDate,
+                endDate: endDate
+            )
+        )
+        if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)
-        try validate(response)
+        try validate(data: data, response: response)
         return try JSONDecoder.api.decode([AttendanceDTO].self, from: data)
     }
 
     func postAttendance(_ dto: AttendanceDTO) async throws -> AttendanceUpsertResponse {
+        try rejectIfUnconfigured()
         var request = try makeRequest(for: .postAttendance)
         request.httpBody = try JSONEncoder.api.encode(dto)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if isPlaceholderHost {
+        if isDemoHost {
             return AttendanceUpsertResponse(serverId: "srv-att-\(dto.localId.uuidString)", localId: dto.localId)
         }
 
         let (data, response) = try await session.data(for: request)
-        try validate(response)
+        try validate(data: data, response: response)
         return try JSONDecoder.api.decode(AttendanceUpsertResponse.self, from: data)
     }
 
     // MARK: - Helpers
 
+    private static func makeSyncSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 45
+        config.timeoutIntervalForResource = 120
+        config.httpMaximumConnectionsPerHost = 6
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }
+
+    /// Lightweight ping to wake cold hosts (e.g. Render) before bulk sync.
+    func warmConnection() async {
+        guard !isPlaceholderHost else { return }
+        _ = try? await healthCheck()
+    }
+
+    private var isDemoHost: Bool {
+        normalizedHostRoot().contains("example.com")
+    }
+
+    private var isUnconfiguredHost: Bool {
+        normalizedHostRoot().contains("your-ims-domain.com")
+    }
+
     private var isPlaceholderHost: Bool {
-        baseURLString.contains("example.com")
+        isDemoHost || isUnconfiguredHost
+    }
+
+    private func rejectIfUnconfigured() throws {
+        if isUnconfiguredHost {
+            throw NetworkError.serverError(
+                statusCode: 0,
+                message: "Set your real IMS API URL in Settings (currently your-ims-domain.com)."
+            )
+        }
+    }
+
+    /// Exposed for connection test UI.
+    static func previewNormalizedHostRoot(_ baseURL: String) -> String {
+        var base = ensuringHTTPS(baseURL)
+        let suffix = AppConstants.apiPathPrefix
+        if base.hasSuffix(suffix) {
+            base = String(base.dropLast(suffix.count))
+        }
+        while base.hasSuffix("/") {
+            base.removeLast()
+        }
+        return base
     }
 
     private static func ensuringHTTPS(_ url: String) -> String {
         var value = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        while value.hasSuffix("/") {
+            value.removeLast()
+        }
         if value.hasPrefix("http://") {
             value = "https://" + value.dropFirst("http://".count)
         }
@@ -200,27 +294,78 @@ actor APIService {
         return value
     }
 
+    /// Accepts either `https://host` or `https://host/constrakr-api`.
+    private func normalizedHostRoot() -> String {
+        var base = baseURLString
+        let suffix = AppConstants.apiPathPrefix
+        if base.hasSuffix(suffix) {
+            base = String(base.dropLast(suffix.count))
+        }
+        while base.hasSuffix("/") {
+            base.removeLast()
+        }
+        return base
+    }
+
+    private static func decodeEmployeeList(from data: Data) throws -> [EmployeeDTO] {
+        let decoder = JSONDecoder.api
+        if let direct = try? decoder.decode([EmployeeDTO].self, from: data) {
+            return direct
+        }
+
+        struct Wrapped: Decodable {
+            let employees: [EmployeeDTO]?
+            let data: [EmployeeDTO]?
+            let results: [EmployeeDTO]?
+        }
+
+        let wrapped = try decoder.decode(Wrapped.self, from: data)
+        if let employees = wrapped.employees { return employees }
+        if let data = wrapped.data { return data }
+        if let results = wrapped.results { return results }
+        return []
+    }
+
     private func makeRequest(for endpoint: APIEndpoint) throws -> URLRequest {
-        guard let url = URL(string: baseURLString + endpoint.path) else {
+        guard var components = URLComponents(string: normalizedHostRoot() + endpoint.path) else {
             throw NetworkError.invalidURL
         }
-        // Security: only HTTPS URLs are constructed after ensuringHTTPS(_:).
+        let query = endpoint.queryItems
+        if !query.isEmpty {
+            components.queryItems = query
+        }
+        guard let url = components.url else {
+            throw NetworkError.invalidURL
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = endpoint.method
-        request.timeoutInterval = 30
+        // Render cold starts can exceed 45s on first request after idle.
+        request.timeoutInterval = 45
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let authToken {
+        if endpoint.requiresAuth, let authToken {
             request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+        } else if endpoint.requiresAuth {
+            throw NetworkError.unauthorized
         }
         return request
     }
 
-    private func validate(_ response: URLResponse) throws {
+    private func validate(data: Data?, response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else {
             throw NetworkError.invalidResponse
         }
+        if http.statusCode == 401 {
+            authToken = nil
+            SyncAuthStore.clear()
+            throw NetworkError.unauthorized
+        }
         guard (200..<300).contains(http.statusCode) else {
-            throw NetworkError.serverError(statusCode: http.statusCode, message: nil)
+            let snippet = data.flatMap { String(data: $0, encoding: .utf8) }?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .prefix(240)
+            let detail = snippet.map { String($0) }
+            throw NetworkError.serverError(statusCode: http.statusCode, message: detail)
         }
     }
 }

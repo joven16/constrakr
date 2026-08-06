@@ -18,6 +18,27 @@ struct StatusBadge: View {
     }
 }
 
+struct CloudStatusBadge: View {
+    let status: EmployeeCloudStatus
+
+    var body: some View {
+        Text(status.rawValue)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .foregroundStyle(foregroundColor)
+            .background(foregroundColor.opacity(0.15), in: Capsule())
+    }
+
+    private var foregroundColor: Color {
+        switch status {
+        case .onIMS: return .green
+        case .needsUpload: return .orange
+        case .notChecked: return .secondary
+        }
+    }
+}
+
 struct StatCard: View {
     let title: String
     let value: String

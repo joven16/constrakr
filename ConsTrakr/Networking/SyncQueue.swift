@@ -17,6 +17,8 @@ final class SyncQueue {
     private(set) var lastError: String?
     private(set) var pendingCount = 0
     private(set) var lastRestoreMessage: String?
+    private(set) var lastPushSummary: SyncService.PushSyncSummary?
+    private(set) var lastEmployeeSyncReport: EmployeeSyncReport?
 
     private let syncService: SyncService
     private var context: ModelContext?
@@ -50,6 +52,7 @@ final class SyncQueue {
 
     func startAutoSync() {
         syncTask?.cancel()
+        BackgroundSyncScheduler.scheduleNextSync()
         syncTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.syncIfNeeded()
@@ -75,6 +78,24 @@ final class SyncQueue {
 
     func syncNow() async {
         guard !isSyncing, let context else { return }
+
+        await AdminSession.shared.restorePersistedSession()
+
+        if await APIService.shared.isUsingPlaceholderHost() {
+            lastError = "Set your real IMS API URL in Settings (not your-ims-domain.com)."
+            return
+        }
+
+        guard AdminSession.shared.isAuthenticated else {
+            lastError = NetworkError.unauthorized.localizedDescription
+            return
+        }
+        guard await APIService.shared.hasAuthToken() else {
+            lastError = NetworkError.unauthorized.localizedDescription
+            AdminSession.shared.handleUnauthorized()
+            return
+        }
+
         isSyncing = true
         lastError = nil
         defer {
@@ -83,9 +104,15 @@ final class SyncQueue {
         }
 
         do {
-            // CHANGE: full offline-first push (not attendance-only).
-            try await syncService.performPushSync(context: context)
+            let summary = try await syncService.performPushSync(context: context)
+            lastPushSummary = summary
             lastSyncDate = Date()
+            lastError = nil
+            lastEmployeeSyncReport = try? await EmployeeSyncChecker.check(context: context, repair: false)
+            BackgroundSyncScheduler.scheduleNextSync()
+        } catch NetworkError.unauthorized {
+            AdminSession.shared.handleUnauthorized()
+            lastError = NetworkError.unauthorized.localizedDescription
         } catch {
             lastError = error.localizedDescription
         }
@@ -117,5 +144,15 @@ final class SyncQueue {
         let f = (try? embeddings.pendingCount()) ?? 0
         let p = (try? photos.pendingCount()) ?? 0
         pendingCount = a + e + f + p
+    }
+
+    /// Compare local roster vs IMS without uploading.
+    func checkEmployeesOnIMS() async throws -> EmployeeSyncReport {
+        guard let context else { throw NetworkError.invalidResponse }
+        await AdminSession.shared.restorePersistedSession()
+        guard AdminSession.shared.isAuthenticated else {
+            throw NetworkError.unauthorized
+        }
+        return try await EmployeeSyncChecker.check(context: context, repair: true)
     }
 }

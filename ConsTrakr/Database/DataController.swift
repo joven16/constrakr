@@ -59,7 +59,7 @@ enum DataController {
                 lastName: sample.2,
                 department: sample.3,
                 faceEmbeddings: [],
-                syncStatus: .synced
+                syncStatus: .pending
             )
             context.insert(employee)
         }

@@ -7,7 +7,10 @@ import Foundation
 
 enum AppConstants {
     static let appName = "ConsTrakr"
-    static let apiBaseURL = "https://api.constrakr.example.com/v1"
+    /// Host root only — `/constrakr-api` is appended automatically.
+    /// Host root only — `/constrakr-api` is appended automatically.
+    static let apiBaseURL = "https://ims.rentelloph.com"
+    static let apiPathPrefix = "/constrakr-api"
 
     // MARK: Matching thresholds
     // AdaFace cosine: same person often ~0.42–0.80; strangers usually << 0.35.
@@ -25,7 +28,7 @@ enum AppConstants {
     static let scannerCooldown: TimeInterval = 3.0
     static let scannerWarmupFrames: Int = 3
     static let scannerConsensusFrames: Int = 2
-    static let syncIntervalSeconds: TimeInterval = 30
+    static let syncIntervalSeconds: TimeInterval = 60
     static let registrationResetDelay: TimeInterval = 2.5
 
     enum UserDefaultsKeys {

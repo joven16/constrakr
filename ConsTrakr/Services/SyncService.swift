@@ -15,6 +15,13 @@ final class SyncService {
     private weak var queue: SyncQueue?
     private var context: ModelContext?
 
+    /// Avoid re-downloading the full employee list on every auto-sync tick.
+    private var cachedRemoteEmployeeIndex: RemoteEmployeeIndex?
+    private var cachedRemoteEmployeeIndexAt: Date?
+    private let remoteEmployeeCacheTTL: TimeInterval = 600
+
+    private let uploadConcurrency = 4
+
     init(api: APIService = .shared, queue: SyncQueue? = nil) {
         self.api = api
         self.queue = queue
@@ -45,31 +52,147 @@ final class SyncService {
     // MARK: - Push pipeline (called by SyncQueue)
 
     /// Uploads pending local changes in dependency order.
-    /// INTEGRATION: Each step maps 1:1 to the placeholder REST endpoints.
-    func performPushSync(context: ModelContext) async throws {
+    func performPushSync(context: ModelContext) async throws -> PushSyncSummary {
         guard NetworkMonitor.shared.isConnected else {
             throw NetworkError.offline
         }
 
-        try await uploadPendingEmployees(context: context)
+        var summary = PushSyncSummary()
+
+        let empRepo = EmployeeRepository(context: context)
+        _ = try empRepo.repairStaleSyncState()
+
+        if AdminSession.shared.isAuthenticated, await api.hasAuthToken() {
+            let preCheck = try await EmployeeSyncChecker.check(context: context, repair: true)
+            summary.apply(preCheck)
+        }
+
+        guard try hasPendingPushWork(context: context) else {
+            summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
+            if summary.employeesLocalTotal == 0 {
+                summary.employeesLocalTotal = try empRepo.count()
+            }
+            return summary
+        }
+
+        await api.warmConnection()
+        cachedRemoteEmployeeIndex = nil
+        cachedRemoteEmployeeIndexAt = nil
+
+        summary = try await uploadPendingEmployees(context: context, summary: summary)
         try await uploadUpdatedEmployees(context: context)
         try await uploadPendingEmbeddings(context: context)
         try await uploadPendingEnrollmentPhotos(context: context)
         try await uploadPendingAttendance(context: context)
+
+        let verify = try await verifyEmployeesOnServer(context: context)
+        summary.employeesOnServer = verify.remoteCount
+        summary.employeesResetForRetry += verify.resetCount
+        summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
+        let postCheck = try await EmployeeSyncChecker.check(context: context, repair: false)
+        summary.apply(postCheck)
+
+        if verify.resetCount > 0 {
+            summary = try await uploadPendingEmployees(context: context, summary: summary)
+            let secondVerify = try await verifyEmployeesOnServer(context: context)
+            summary.employeesOnServer = secondVerify.remoteCount
+            summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
+            let finalCheck = try await EmployeeSyncChecker.check(context: context, repair: false)
+            summary.apply(finalCheck)
+        }
+
+        if summary.employeesStillLocalOnly > 0 {
+            throw NetworkError.serverError(
+                statusCode: 0,
+                message: summary.failureMessage
+            )
+        }
+
+        return summary
     }
 
-    private func uploadPendingEmployees(context: ModelContext) async throws {
+    struct PushSyncSummary {
+        var employeesPosted = 0
+        var employeesLinked = 0
+        var employeesOnServer = 0
+        var employeesStillLocalOnly = 0
+        var employeesResetForRetry = 0
+        var employeesLocalTotal = 0
+        var employeesConfirmedOnIMS = 0
+
+        var successMessage: String {
+            if employeesPosted == 0 && employeesLinked == 0 {
+                return "\(employeesConfirmedOnIMS)/\(employeesLocalTotal) employees confirmed on IMS (\(employeesOnServer) on server)."
+            }
+            return "Uploaded \(employeesPosted), linked \(employeesLinked). \(employeesConfirmedOnIMS)/\(employeesLocalTotal) on IMS."
+        }
+
+        var failureMessage: String {
+            "\(employeesStillLocalOnly) employee(s) still not on IMS. Confirmed: \(employeesConfirmedOnIMS)/\(employeesLocalTotal). Posted: \(employeesPosted)."
+        }
+
+        mutating func apply(_ report: EmployeeSyncReport) {
+            employeesLocalTotal = report.localTotal
+            employeesConfirmedOnIMS = report.confirmedOnIMS
+            employeesOnServer = report.remoteTotal
+            employeesStillLocalOnly = report.needsUpload
+            employeesResetForRetry += report.resetPhantomIds
+        }
+    }
+
+    private func verifyEmployeesOnServer(context: ModelContext) async throws -> (remoteCount: Int, resetCount: Int) {
+        let report = try await EmployeeSyncChecker.check(context: context, repair: true)
+        return (report.remoteTotal, report.resetPhantomIds + report.linkedFromServer)
+    }
+
+    private func hasPendingPushWork(context: ModelContext) throws -> Bool {
+        let employees = EmployeeRepository(context: context)
+        let embeddings = FaceEmbeddingRepository(context: context)
+        let photos = FaceEnrollmentPhotoRepository(context: context)
+        let attendance = AttendanceRepository(context: context)
+        return try employees.pendingCount() > 0
+            || embeddings.pendingCount() > 0
+            || photos.pendingCount() > 0
+            || attendance.pendingCount() > 0
+    }
+
+    private func persist(_ context: ModelContext) throws {
+        try context.save()
+    }
+
+    private func uploadPendingEmployees(
+        context: ModelContext,
+        summary: PushSyncSummary
+    ) async throws -> PushSyncSummary {
+        var summary = summary
         let repo = EmployeeRepository(context: context)
         let pending = try repo.fetchPendingSync()
+        guard !pending.isEmpty else { return summary }
+
+        let remoteIndex = try await remoteEmployeeIndex(forceRefresh: true)
+
         for employee in pending {
-            // Duplicate prevention: skip anything that already has a serverId.
-            guard employee.serverId == nil else {
+            if let serverId = APIDecoding.normalizedServerId(employee.serverId) {
+                employee.serverId = serverId
                 employee.syncStatus = .synced
-                try repo.update(employee)
+                try repo.update(employee, persist: false)
                 continue
             }
+
+            if let remote = remoteIndex.match(for: employee),
+               let serverId = APIDecoding.normalizedServerId(remote.serverId) {
+                try linkEmployeeToServer(
+                    employee,
+                    serverId: serverId,
+                    context: context,
+                    persist: false
+                )
+                summary.employeesLinked += 1
+                continue
+            }
+
             employee.syncStatus = .syncing
-            try repo.update(employee)
+            try repo.update(employee, persist: false)
 
             let dto = EmployeeDTO(
                 serverId: nil,
@@ -84,39 +207,103 @@ final class SyncService {
             )
             do {
                 let response = try await api.postEmployee(dto)
-                employee.serverId = response.serverId
-                employee.syncStatus = .synced
-                try repo.update(employee)
-
-                // Propagate employeeServerId onto pending embedding rows.
-                let embRepo = FaceEmbeddingRepository(context: context)
-                for emb in try embRepo.fetch(forEmployeeLocalId: employee.id) {
-                    emb.employeeServerId = response.serverId
-                    try embRepo.update(emb)
+                guard let serverId = APIDecoding.normalizedServerId(response.serverId) else {
+                    throw NetworkError.serverError(statusCode: 0, message: "Employee POST returned empty server id.")
                 }
-
-                let photoRepo = FaceEnrollmentPhotoRepository(context: context)
-                try photoRepo.ensureEntitiesForEmployee(employee)
-                for photo in try photoRepo.fetch(forEmployeeLocalId: employee.id) {
-                    photo.employeeServerId = response.serverId
-                    try photoRepo.update(photo)
+                try linkEmployeeToServer(
+                    employee,
+                    serverId: serverId,
+                    context: context,
+                    persist: false
+                )
+                summary.employeesPosted += 1
+                cachedRemoteEmployeeIndex = nil
+                cachedRemoteEmployeeIndexAt = nil
+            } catch let error as NetworkError {
+                if case .serverError(409, _) = error {
+                    let refreshed = try await remoteEmployeeIndex(forceRefresh: true)
+                    if let remote = refreshed.match(for: employee),
+                       let serverId = APIDecoding.normalizedServerId(remote.serverId) {
+                        try linkEmployeeToServer(
+                            employee,
+                            serverId: serverId,
+                            context: context,
+                            persist: false
+                        )
+                        summary.employeesLinked += 1
+                        continue
+                    }
                 }
+                employee.syncStatus = .failed
+                try? repo.update(employee, persist: false)
+                try persist(context)
+                throw error
             } catch {
                 employee.syncStatus = .failed
-                try? repo.update(employee)
+                try? repo.update(employee, persist: false)
+                try persist(context)
                 throw error
             }
         }
+
+        try persist(context)
+        return summary
+    }
+
+    /// Links a local employee to its server row and propagates `employeeServerId` to child records.
+    private func linkEmployeeToServer(
+        _ employee: Employee,
+        serverId: String,
+        context: ModelContext,
+        persist: Bool = true
+    ) throws {
+        let repo = EmployeeRepository(context: context)
+        employee.serverId = serverId
+        employee.syncStatus = .synced
+        try repo.update(employee, persist: false)
+
+        let embRepo = FaceEmbeddingRepository(context: context)
+        for emb in try embRepo.fetch(forEmployeeLocalId: employee.id) {
+            emb.employeeServerId = serverId
+            try embRepo.update(emb, persist: false)
+        }
+
+        let photoRepo = FaceEnrollmentPhotoRepository(context: context)
+        try photoRepo.ensureEntitiesForEmployee(employee)
+        for photo in try photoRepo.fetch(forEmployeeLocalId: employee.id) {
+            photo.employeeServerId = serverId
+            try photoRepo.update(photo, persist: false)
+        }
+
+        if persist {
+            try self.persist(context)
+        }
+    }
+
+    private func remoteEmployeeIndex(forceRefresh: Bool) async throws -> RemoteEmployeeIndex {
+        if !forceRefresh,
+           let cachedRemoteEmployeeIndex,
+           let cachedRemoteEmployeeIndexAt,
+           Date().timeIntervalSince(cachedRemoteEmployeeIndexAt) < remoteEmployeeCacheTTL {
+            return cachedRemoteEmployeeIndex
+        }
+
+        let remote = try await api.getEmployees()
+        let index = RemoteEmployeeIndex(remote: remote)
+        cachedRemoteEmployeeIndex = index
+        cachedRemoteEmployeeIndexAt = Date()
+        return index
     }
 
     private func uploadUpdatedEmployees(context: ModelContext) async throws {
         let repo = EmployeeRepository(context: context)
         let pending = try repo.fetchPendingUpdates()
+        guard !pending.isEmpty else { return }
 
         for employee in pending {
             guard let serverId = employee.serverId else { continue }
             employee.syncStatus = .syncing
-            try repo.update(employee)
+            try repo.update(employee, persist: false)
 
             let dto = EmployeeDTO(
                 serverId: serverId,
@@ -132,37 +319,44 @@ final class SyncService {
             do {
                 _ = try await api.putEmployee(dto)
                 employee.syncStatus = .synced
-                try repo.update(employee)
+                try repo.update(employee, persist: false)
             } catch {
                 employee.syncStatus = .failed
-                try? repo.update(employee)
+                try? repo.update(employee, persist: false)
+                try persist(context)
                 throw error
             }
         }
+
+        try persist(context)
     }
 
     private func uploadPendingEmbeddings(context: ModelContext) async throws {
         let embRepo = FaceEmbeddingRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
         let pending = try embRepo.fetchPendingSync()
+        guard !pending.isEmpty else { return }
 
+        var ready: [FaceEmbeddingEntity] = []
         for entity in pending {
             guard entity.serverId == nil else {
                 entity.syncStatus = .synced
-                try embRepo.update(entity)
+                try embRepo.update(entity, persist: false)
                 continue
             }
 
-            // Wait until parent employee is synced so the backend can link embeddings.
             if entity.employeeServerId == nil,
                let parent = try empRepo.fetch(id: entity.employeeLocalId),
                let serverId = parent.serverId {
                 entity.employeeServerId = serverId
             }
             guard entity.employeeServerId != nil else { continue }
+            ready.append(entity)
+        }
 
+        try await uploadInParallel(items: ready, maxConcurrent: uploadConcurrency) { entity in
             entity.syncStatus = .syncing
-            try embRepo.update(entity)
+            try embRepo.update(entity, persist: false)
 
             let dto = FaceEmbeddingDTO(
                 serverId: nil,
@@ -173,32 +367,40 @@ final class SyncService {
                 encryptedValuesBase64: entity.encryptedValues.base64EncodedString()
             )
             do {
-                let response = try await api.postFaceEmbedding(dto)
+                let response = try await self.api.postFaceEmbedding(dto)
                 entity.serverId = response.serverId
                 entity.syncStatus = .synced
-                try embRepo.update(entity)
+                try embRepo.update(entity, persist: false)
             } catch {
                 entity.syncStatus = .failed
-                try? embRepo.update(entity)
-                throw error
+                try? embRepo.update(entity, persist: false)
             }
         }
+
+        try persist(context)
     }
 
     private func uploadPendingEnrollmentPhotos(context: ModelContext) async throws {
         let photoRepo = FaceEnrollmentPhotoRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
 
-        // Backfill sync rows for employees registered before photo sync shipped.
-        for employee in try empRepo.fetchAll() where employee.serverId != nil {
-            try photoRepo.ensureEntitiesForEmployee(employee)
+        let pending = try photoRepo.fetchPendingSync()
+        guard !pending.isEmpty else { return }
+
+        let employeeIds = Set(pending.map(\.employeeLocalId))
+        for employeeId in employeeIds {
+            if let employee = try empRepo.fetch(id: employeeId), employee.serverId != nil {
+                try photoRepo.ensureEntitiesForEmployee(employee)
+            }
         }
 
-        let pending = try photoRepo.fetchPendingSync()
-        for entity in pending {
+        let refreshedPending = try photoRepo.fetchPendingSync()
+        var ready: [FaceEnrollmentPhotoEntity] = []
+
+        for entity in refreshedPending {
             guard entity.serverId == nil else {
                 entity.syncStatus = .synced
-                try photoRepo.update(entity)
+                try photoRepo.update(entity, persist: false)
                 continue
             }
 
@@ -209,15 +411,24 @@ final class SyncService {
             }
             guard entity.employeeServerId != nil else { continue }
 
-            guard let jpeg = EnrollmentPhotoStore.load(
+            guard EnrollmentPhotoStore.load(
                 employeeId: entity.employeeLocalId,
                 pose: entity.pose
-            ) else {
+            ) != nil else {
                 continue
             }
 
+            ready.append(entity)
+        }
+
+        try await uploadInParallel(items: ready, maxConcurrent: uploadConcurrency) { entity in
+            guard let jpeg = EnrollmentPhotoStore.load(
+                employeeId: entity.employeeLocalId,
+                pose: entity.pose
+            ) else { return }
+
             entity.syncStatus = .syncing
-            try photoRepo.update(entity)
+            try photoRepo.update(entity, persist: false)
 
             let dto = FaceEnrollmentPhotoDTO(
                 serverId: nil,
@@ -228,26 +439,29 @@ final class SyncService {
                 jpegBase64: jpeg.base64EncodedString()
             )
             do {
-                let response = try await api.postFaceEnrollmentPhoto(dto)
+                let response = try await self.api.postFaceEnrollmentPhoto(dto)
                 entity.serverId = response.serverId
                 entity.syncStatus = .synced
-                try photoRepo.update(entity)
+                try photoRepo.update(entity, persist: false)
             } catch {
                 entity.syncStatus = .failed
-                try? photoRepo.update(entity)
-                throw error
+                try? photoRepo.update(entity, persist: false)
             }
         }
+
+        try persist(context)
     }
 
     private func uploadPendingAttendance(context: ModelContext) async throws {
         let attRepo = AttendanceRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
         let pending = try attRepo.fetchPendingSync()
+        guard !pending.isEmpty else { return }
 
+        var ready: [Attendance] = []
         for record in pending {
             guard record.serverId == nil else {
-                try attRepo.updateSyncStatus(record, status: .synced)
+                try attRepo.updateSyncStatus(record, status: .synced, persist: false)
                 continue
             }
 
@@ -255,8 +469,11 @@ final class SyncService {
                let parent = try empRepo.fetch(id: record.employeeId) {
                 record.employeeServerId = parent.serverId
             }
+            ready.append(record)
+        }
 
-            try attRepo.updateSyncStatus(record, status: .syncing)
+        try await uploadInParallel(items: ready, maxConcurrent: uploadConcurrency) { record in
+            try attRepo.updateSyncStatus(record, status: .syncing, persist: false)
 
             let punchJPEG = AttendancePhotoStore.load(attendanceId: record.id)
             let dto = AttendanceDTO(
@@ -271,12 +488,38 @@ final class SyncService {
                 punchPhotoBase64: punchJPEG?.base64EncodedString()
             )
             do {
-                let response = try await api.postAttendance(dto)
+                let response = try await self.api.postAttendance(dto)
                 record.serverId = response.serverId
-                try attRepo.updateSyncStatus(record, status: .synced)
+                try attRepo.updateSyncStatus(record, status: .synced, persist: false)
             } catch {
-                try? attRepo.updateSyncStatus(record, status: .failed)
-                throw error
+                try? attRepo.updateSyncStatus(record, status: .failed, persist: false)
+            }
+        }
+
+        try persist(context)
+    }
+
+    private func uploadInParallel<T>(
+        items: [T],
+        maxConcurrent: Int,
+        upload: @escaping (T) async throws -> Void
+    ) async throws {
+        guard !items.isEmpty else { return }
+
+        var index = 0
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            let initial = min(maxConcurrent, items.count)
+            for _ in 0..<initial {
+                let item = items[index]
+                index += 1
+                group.addTask { try await upload(item) }
+            }
+
+            while let _ = try await group.next() {
+                guard index < items.count else { continue }
+                let item = items[index]
+                index += 1
+                group.addTask { try await upload(item) }
             }
         }
     }
@@ -349,7 +592,12 @@ final class SyncService {
         }
 
         // Optional: GET /attendance for history restore (does not block offline recognition).
-        let remoteAttendance = try await api.getAttendance()
+        let restoreStart = Calendar.current.date(byAdding: .year, value: -2, to: Date()) ?? Date()
+        let remoteAttendance = try await api.getAttendance(
+            employeeServerId: nil,
+            startDate: restoreStart,
+            endDate: Date()
+        )
         var attendanceCount = 0
         for dto in remoteAttendance {
             let already = try attExists(context: context, serverId: dto.serverId, localId: dto.localId)

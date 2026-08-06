@@ -18,20 +18,11 @@ struct ConsTrakrApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .environment(syncQueue)
-                .environment(tabRouter)
-                .onAppear {
-                    let context = modelContainer.mainContext
-                    DataController.seedMockDataIfNeeded(context: context)
-                    syncQueue.configure(context: context)
-                    let autoSync = UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.autoSyncEnabled) as? Bool ?? true
-                    if autoSync {
-                        syncQueue.startAutoSync()
-                    }
-                    // Warm NetworkMonitor
-                    _ = NetworkMonitor.shared
-                }
+            AppRootView(
+                modelContainer: modelContainer,
+                syncQueue: syncQueue,
+                tabRouter: tabRouter
+            )
         }
         .modelContainer(modelContainer)
     }

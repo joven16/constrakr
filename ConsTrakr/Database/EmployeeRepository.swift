@@ -62,18 +62,34 @@ final class EmployeeRepository {
         return try context.fetch(descriptor).first
     }
 
-    /// New employees awaiting first upload.
+    /// New employees awaiting first upload (any row without a backend id).
     func fetchPendingSync() throws -> [Employee] {
-        let pending = SyncStatus.pending.rawValue
-        let failed = SyncStatus.failed.rawValue
         let descriptor = FetchDescriptor<Employee>(
             predicate: #Predicate { employee in
-                (employee.syncStatusRaw == pending || employee.syncStatusRaw == failed)
-                    && employee.serverId == nil
+                employee.serverId == nil
             },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         return try context.fetch(descriptor)
+    }
+
+    /// Fixes rows marked synced locally but never received a server id (legacy mock seed).
+    func repairStaleSyncState() throws -> Int {
+        let synced = SyncStatus.synced.rawValue
+        let descriptor = FetchDescriptor<Employee>(
+            predicate: #Predicate { employee in
+                employee.serverId == nil && employee.syncStatusRaw == synced
+            }
+        )
+        let stale = try context.fetch(descriptor)
+        for employee in stale {
+            employee.syncStatus = .pending
+            employee.updatedAt = Date()
+        }
+        if !stale.isEmpty {
+            try context.save()
+        }
+        return stale.count
     }
 
     /// Profile edits on employees already synced to the backend.
@@ -99,9 +115,11 @@ final class EmployeeRepository {
         try context.save()
     }
 
-    func update(_ employee: Employee) throws {
+    func update(_ employee: Employee, persist: Bool = true) throws {
         employee.updatedAt = Date()
-        try context.save()
+        if persist {
+            try context.save()
+        }
     }
 
     func delete(_ employee: Employee) throws {

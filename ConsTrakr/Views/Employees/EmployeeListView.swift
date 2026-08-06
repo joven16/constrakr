@@ -9,10 +9,12 @@ import UIKit
 
 struct EmployeeListView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(SyncQueue.self) private var syncQueue
     @Environment(AppTabRouter.self) private var tabRouter
     @State private var viewModel = EmployeeListViewModel()
     @State private var employeesPendingDeletion: [Employee] = []
     @State private var showDeleteConfirmation = false
+    @State private var showCloudCheckAlert = false
 
     var body: some View {
         NavigationStack {
@@ -31,11 +33,27 @@ struct EmployeeListView: View {
                 )
             } else {
                 List {
+                    if let report = viewModel.cloudReport {
+                        Section {
+                            LabeledContent("On IMS", value: "\(report.confirmedOnIMS)/\(report.localTotal)")
+                            LabeledContent("Need upload", value: "\(report.needsUpload)")
+                            LabeledContent("Server total", value: "\(report.remoteTotal)")
+                        } header: {
+                            Text("IMS employee check")
+                        }
+                    }
+
                     ForEach(viewModel.employees, id: \.id) { employee in
                         NavigationLink {
-                            EmployeeDetailView(employee: employee)
+                            EmployeeDetailView(
+                                employee: employee,
+                                cloudStatus: viewModel.cloudStatus(for: employee.id)
+                            )
                         } label: {
-                            EmployeeRow(employee: employee)
+                            EmployeeRow(
+                                employee: employee,
+                                cloudStatus: viewModel.cloudStatus(for: employee.id)
+                            )
                         }
                     }
                     .onDelete { indexSet in
@@ -49,6 +67,21 @@ struct EmployeeListView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    Task {
+                        await viewModel.checkCloudSync()
+                        showCloudCheckAlert = true
+                    }
+                } label: {
+                    if viewModel.isCheckingCloud {
+                        ProgressView()
+                    } else {
+                        Label("Check IMS", systemImage: "checkmark.icloud")
+                    }
+                }
+                .disabled(viewModel.isCheckingCloud)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     EmployeeRegistrationView()
@@ -72,18 +105,26 @@ struct EmployeeListView: View {
             viewModel.refresh()
         }
         .onAppear {
-            viewModel.configure(context: modelContext)
+            viewModel.configure(context: modelContext, syncQueue: syncQueue)
+            Task { await viewModel.checkCloudSync() }
         }
         .onChange(of: tabRouter.selectedTab) { _, tab in
             if tab == .employees {
                 viewModel.refresh()
+                Task { await viewModel.checkCloudSync() }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
             viewModel.refresh()
         }
         .refreshable {
+            await viewModel.checkCloudSync()
             viewModel.refresh()
+        }
+        .alert("IMS Employee Check", isPresented: $showCloudCheckAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.cloudReport?.summaryLine ?? viewModel.errorMessage ?? "Could not check IMS.")
         }
     }
 
@@ -106,6 +147,7 @@ struct EmployeeListView: View {
 
 private struct EmployeeRow: View {
     let employee: Employee
+    let cloudStatus: EmployeeCloudStatus
 
     var body: some View {
         HStack(spacing: 12) {
@@ -118,9 +160,13 @@ private struct EmployeeRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if employee.isEnrolled {
-                Image(systemName: "faceid")
-                    .foregroundStyle(.green)
+            VStack(alignment: .trailing, spacing: 4) {
+                CloudStatusBadge(status: cloudStatus)
+                if employee.isEnrolled {
+                    Image(systemName: "faceid")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -156,6 +202,7 @@ private struct EmployeeRow: View {
 
 struct EmployeeDetailView: View {
     let employee: Employee
+    var cloudStatus: EmployeeCloudStatus = .notChecked
 
     private var enrollmentPhotos: [(pose: FacePose, data: Data)] {
         EnrollmentPhotoStore.loadAll(employeeId: employee.id)
@@ -168,6 +215,15 @@ struct EmployeeDetailView: View {
                 LabeledContent("Name", value: employee.fullName)
                 LabeledContent("Department", value: employee.department)
                 LabeledContent("Enrolled", value: employee.isEnrolled ? "Yes" : "No")
+                LabeledContent("IMS status") {
+                    CloudStatusBadge(status: cloudStatus)
+                }
+                if let serverId = employee.serverId, !serverId.isEmpty {
+                    LabeledContent("Server ID", value: serverId)
+                }
+                if cloudStatus == .needsUpload {
+                    LabeledContent("Upload", value: employee.syncStatus.displayName)
+                }
             }
 
             Section("Registered Faces") {
