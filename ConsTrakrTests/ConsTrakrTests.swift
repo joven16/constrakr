@@ -43,8 +43,13 @@ struct ConsTrakrTests {
 
         FaceScanSettings.applyLevel(.standard)
         FaceScanSettings.setStepEnabled(.closeUp, false)
-        #expect(FaceScanSettings.scannerLivenessSteps() == [.blink, .turnLeft, .turnRight])
-        #expect(FaceScanSettings.scannerReadyStepNames() == ["Blink", "Look left", "Look right", "3D"])
+        FaceScanSettings.setStepEnabled(.lookLeft, false)
+        FaceScanSettings.setStepEnabled(.lookRight, false)
+        FaceScanSettings.setStepEnabled(.lookUp, false)
+        FaceScanSettings.setStepEnabled(.lookDown, false)
+        #expect(FaceScanSettings.scannerLivenessSteps() == [.blink])
+        #expect(FaceScanSettings.isBlinkOnlyConfiguration)
+        #expect(FaceScanSettings.scannerPresetLabel() == "Blink only")
     }
 
     @Test func faceScanReadySummaryUsesSettings() {

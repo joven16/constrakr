@@ -433,6 +433,42 @@ final class AttendanceScannerViewModel {
         resetConsensus()
     }
 
+    private func finishLivenessAndBeginMatching() {
+        isAwaitingDepthConfirm = false
+        livenessPassed = true
+        livenessStepNumber = livenessTotalSteps
+        livenessStepLabel = "Step \(livenessTotalSteps) of \(livenessTotalSteps)"
+        setStableInstruction("Matching face…")
+        statusMessage = stableInstruction
+        syncLivenessStepUI()
+        resetConsensus()
+    }
+
+    /// After 2D gestures (blink / turns / close-up) complete.
+    private func completeGesturePhase() {
+        let requiresMoveCloserDepth = livenessChecker.steps.contains(.moveCloser)
+        if requiresMoveCloserDepth,
+           cameraManager.isDepthAvailable,
+           !depthMotionValidator.passedMoveCloserDepthCheck() {
+            rejectPresentationAttack(
+                "Screen replay detected — physically move closer, not a video zoom."
+            )
+            return
+        }
+
+        if cameraManager.isDepthAvailable {
+            isAwaitingDepthConfirm = true
+            depthConfirmStreak = 0
+            depthMotionValidator.resetConfirmSamples()
+            setStableInstruction("Hold still — 3D check")
+            statusMessage = stableInstruction
+            syncLivenessStepUI()
+            guideConditionMet = true
+        } else {
+            finishLivenessAndBeginMatching()
+        }
+    }
+
     /// RGB replay cues. Used during liveness, not identity matching.
     private func looksLikeScreenReplay(pixelBuffer: CVPixelBuffer, faceBox: CGRect) -> Bool {
         spoofTracker.observe(pixelBuffer: pixelBuffer, faceBox: faceBox, rejectThreshold: 0.58)
@@ -566,6 +602,11 @@ final class AttendanceScannerViewModel {
 
                 // 3D confirm: strict TrueDepth + depth stability — blocks flat screens and scrubbed video.
                 if isAwaitingDepthConfirm {
+                    if !cameraManager.isDepthAvailable {
+                        finishLivenessAndBeginMatching()
+                        resetConsensus()
+                        return
+                    }
                     if let depthData {
                         depthMotionValidator.observeDepthConfirm(
                             depthData: depthData,
@@ -584,13 +625,7 @@ final class AttendanceScannerViewModel {
                         guideConditionMet = true
                         recognitionState = .liveness
                         if depthConfirmStreak >= depthConfirmNeeded {
-                            isAwaitingDepthConfirm = false
-                            livenessPassed = true
-                            livenessStepNumber = livenessTotalSteps
-                            livenessStepLabel = "Step \(livenessTotalSteps) of \(livenessTotalSteps)"
-                            setStableInstruction("Matching face…")
-                            statusMessage = stableInstruction
-                            resetConsensus()
+                            finishLivenessAndBeginMatching()
                         }
                     } else {
                         depthConfirmStreak = max(0, depthConfirmStreak - 1)
@@ -627,19 +662,7 @@ final class AttendanceScannerViewModel {
                 statusMessage = stableInstruction
 
                 if passed {
-                    if cameraManager.isDepthAvailable && !depthMotionValidator.passedMoveCloserDepthCheck() {
-                        rejectPresentationAttack(
-                            "Screen replay detected — physically move closer, not a video zoom."
-                        )
-                        return
-                    }
-                    isAwaitingDepthConfirm = true
-                    depthConfirmStreak = 0
-                    depthMotionValidator.resetConfirmSamples()
-                    setStableInstruction("Hold still — 3D check")
-                    statusMessage = stableInstruction
-                    syncLivenessStepUI()
-                    guideConditionMet = true
+                    completeGesturePhase()
                 }
                 resetConsensus()
                 return

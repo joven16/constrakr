@@ -95,6 +95,11 @@ enum FaceScanSettings {
         Step.gestureOrder.filter { isStepEnabled($0) }
     }
 
+    /// True when every optional gesture toggle is off (blink-only live check).
+    static var isBlinkOnlyConfiguration: Bool {
+        enabledSteps.isEmpty
+    }
+
     /// Blink is always first; optional gestures follow; 3D confirm is added separately in the scanner.
     static func scannerLivenessSteps() -> [LivenessChallenge] {
         var steps: [LivenessChallenge] = [.blink]
@@ -144,7 +149,8 @@ enum FaceScanSettings {
 
     /// Preset name or "Custom" for the attendance scanner Ready screen.
     static func scannerPresetLabel() -> String {
-        matchingLevel()?.title ?? "Custom"
+        if isBlinkOnlyConfiguration { return "Blink only" }
+        return matchingLevel()?.title ?? "Custom"
     }
 
     /// e.g. "Standard · Blink · Look left · Look right · Close-up · 3D"

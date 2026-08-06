@@ -179,7 +179,7 @@ struct SettingsView: View {
                     Text(note)
                         .foregroundStyle(.orange)
                 } else {
-                    Text("Controls the live checks during Time In / Time Out. Blink always runs first, then any enabled steps above, then 3D depth if available. Registration always captures all five angles.")
+                    Text("Controls the live checks during Time In / Time Out. Blink always runs first, then any enabled steps above, then 3D depth if available. With all steps off, scan is blink only (+ 3D on TrueDepth). Registration always captures all five angles.")
                 }
             }
 
