@@ -152,7 +152,7 @@ struct SettingsView: View {
             Section {
                 ForEach(FaceScanSettings.Level.allCases) { level in
                     Button {
-                        viewModel.selectFaceScanLevel(level)
+                        Task { await viewModel.selectFaceScanLevel(level) }
                     } label: {
                         HStack(alignment: .top, spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
@@ -172,6 +172,7 @@ struct SettingsView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(viewModel.isSavingFaceScanSettings)
                 }
 
                 if FaceScanSettings.isCustomConfiguration {
@@ -182,10 +183,25 @@ struct SettingsView: View {
                 }
 
                 Toggle(FaceScanSettings.settingsLabel(for: .closeUp), isOn: $viewModel.faceScanCenterEnabled)
+                    .disabled(viewModel.isSavingFaceScanSettings)
                 Toggle(FaceScanSettings.settingsLabel(for: .lookLeft), isOn: $viewModel.faceScanLeftEnabled)
+                    .disabled(viewModel.isSavingFaceScanSettings)
                 Toggle(FaceScanSettings.settingsLabel(for: .lookRight), isOn: $viewModel.faceScanRightEnabled)
+                    .disabled(viewModel.isSavingFaceScanSettings)
                 Toggle(FaceScanSettings.settingsLabel(for: .lookUp), isOn: $viewModel.faceScanUpEnabled)
+                    .disabled(viewModel.isSavingFaceScanSettings)
                 Toggle(FaceScanSettings.settingsLabel(for: .lookDown), isOn: $viewModel.faceScanDownEnabled)
+                    .disabled(viewModel.isSavingFaceScanSettings)
+
+                if viewModel.isSavingFaceScanSettings {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Saving scanner settings…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } header: {
                 Text("Face Scanner")
             } footer: {

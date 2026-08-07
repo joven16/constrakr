@@ -26,6 +26,7 @@ enum AppConstants {
     static let minFaceConfidence: Float = 0.55
     static let poseHoldDuration: TimeInterval = 0.6
     static let scannerCooldown: TimeInterval = 3.0
+    static let unknownPersonAutoCancelDelay: TimeInterval = 3.0
     static let scannerWarmupFrames: Int = 3
     static let scannerConsensusFrames: Int = 2
     static let registrationResetDelay: TimeInterval = 2.5

@@ -70,6 +70,13 @@ final class AttendanceScannerViewModel {
     /// Blocks alert-dismiss `cancelConfirm` from wiping an in-flight Time In/Out start.
     private var isStartingAuthorizedSession = false
 
+    private(set) var readyScanPresetLabel = FaceScanSettings.scannerPresetLabel()
+    private(set) var readyScanStepLabels: [String] = FaceScanSettings.scannerReadyStepNames(include3D: false)
+    private(set) var readyScanCompactLine = FaceScanSettings.scannerPresetLabel()
+    private(set) var readyScanExtras: [String] = []
+    /// True when TrueDepth maps are available (shown on Ready steps).
+    private(set) var scannerDepthAvailable = false
+
     var showsRecognitionDetails: Bool {
         switch recognitionState {
         case .recognized, .alreadyRecorded:
@@ -125,10 +132,7 @@ final class AttendanceScannerViewModel {
 
     var secondaryInstruction: String? {
         if !isSessionActive {
-            var extras: [String] = []
-            if SupervisorPINSettings.isRequired { extras.append("supervisor PIN on") }
-            if SiteGeofenceSettings.isRequired { extras.append("on-site GPS on") }
-            return FaceScanSettings.scannerReadySummary(extraParts: extras)
+            return nil
         }
         if !livenessPassed {
             return livenessStepLabel
@@ -191,6 +195,7 @@ final class AttendanceScannerViewModel {
     private var consensusCount = 0
     private var consensusBestScore: Float = 0
     private var consensusName: String?
+    private var unknownPersonCancelTask: Task<Void, Never>?
 
     func configure(context: ModelContext, syncQueue: SyncQueue) {
         attendanceService = AttendanceService(context: context)
@@ -198,6 +203,26 @@ final class AttendanceScannerViewModel {
         self.syncQueue = syncQueue
         endSession(status: "Choose Time In or Time Out to begin.")
         reloadEmployees()
+        refreshScannerReadySteps()
+    }
+
+    /// Reloads Ready-screen steps from Settings → Face Scanner (call on scanner open).
+    func refreshScannerReadySteps() {
+        readyScanPresetLabel = FaceScanSettings.scannerPresetLabel()
+        readyScanStepLabels = FaceScanSettings.scannerReadyStepNames(include3D: scannerDepthAvailable)
+        readyScanCompactLine = Self.makeReadyCompactLine(
+            preset: readyScanPresetLabel,
+            steps: readyScanStepLabels
+        )
+        var extras: [String] = []
+        if SupervisorPINSettings.isRequired { extras.append("Supervisor PIN required") }
+        if SiteGeofenceSettings.isRequired { extras.append("On-site GPS required") }
+        readyScanExtras = extras
+    }
+
+    private static func makeReadyCompactLine(preset: String, steps: [String]) -> String {
+        guard !steps.isEmpty else { return preset }
+        return "\(preset): \(steps.joined(separator: " → "))"
     }
 
     func requestConfirm(_ type: CheckType) {
@@ -296,6 +321,7 @@ final class AttendanceScannerViewModel {
     }
 
     func beginSession(type: CheckType) {
+        cancelUnknownPersonAutoCancel()
         checkType = type
         isSessionActive = true
         livenessChecker.resetForScanner()
@@ -336,6 +362,7 @@ final class AttendanceScannerViewModel {
     }
 
     func endSession(status: String) {
+        cancelUnknownPersonAutoCancel()
         isSessionActive = false
         isStartingAuthorizedSession = false
         pendingConfirmType = nil
@@ -378,6 +405,8 @@ final class AttendanceScannerViewModel {
             }
             cameraManager.start()
             cameraError = nil
+            scannerDepthAvailable = cameraManager.isDepthAvailable
+            refreshScannerReadySteps()
             statusMessage = "Choose Time In or Time Out to begin."
             recognitionState = .idle
         } catch {
@@ -393,6 +422,7 @@ final class AttendanceScannerViewModel {
 
     /// Clears previous recognition, consensus, and timing before a new attempt.
     func hardResetScanner(status: String) {
+        cancelUnknownPersonAutoCancel()
         lastMatchName = nil
         lastMatchConfidence = nil
         faceDetected = false
@@ -698,6 +728,7 @@ final class AttendanceScannerViewModel {
             setStableInstruction("Center your face in the outline")
         } catch FaceRecognitionPipeline.PipelineError.unknownPerson(let bestSimilarity) {
             if consensusCount > 0 {
+                cancelUnknownPersonAutoCancel()
                 resetConsensus()
                 recognitionState = .verifying
                 statusMessage = "Hold still while we match"
@@ -718,8 +749,10 @@ final class AttendanceScannerViewModel {
             } else {
                 statusMessage = "Face not recognized"
             }
+            scheduleUnknownPersonAutoCancel()
         } catch FaceRecognitionPipeline.PipelineError.poorQuality {
             if consensusCount > 0 {
+                cancelUnknownPersonAutoCancel()
                 resetConsensus()
                 recognitionState = .verifying
                 statusMessage = "Hold still while we match"
@@ -732,6 +765,7 @@ final class AttendanceScannerViewModel {
             statusMessage = "Try better lighting and look at the camera"
         } catch {
             if consensusCount > 0 {
+                cancelUnknownPersonAutoCancel()
                 resetConsensus()
                 recognitionState = .verifying
                 statusMessage = "Hold still while we match"
@@ -741,11 +775,32 @@ final class AttendanceScannerViewModel {
             guideConditionMet = false
             recognitionState = .unknownPerson
             statusMessage = "Face not recognized"
+            scheduleUnknownPersonAutoCancel()
         }
+    }
+
+    private func scheduleUnknownPersonAutoCancel() {
+        guard unknownPersonCancelTask == nil else { return }
+        unknownPersonCancelTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(AppConstants.unknownPersonAutoCancelDelay))
+            guard !Task.isCancelled, isSessionActive, recognitionState == .unknownPerson else {
+                unknownPersonCancelTask = nil
+                return
+            }
+            unknownPersonCancelTask = nil
+            endSession(status: "Choose Time In or Time Out to begin.")
+            lastScanDate = Date()
+        }
+    }
+
+    private func cancelUnknownPersonAutoCancel() {
+        unknownPersonCancelTask?.cancel()
+        unknownPersonCancelTask = nil
     }
 
     /// Require several consecutive agreeing frames before saving attendance.
     private func handleConsensusMatch(_ match: FaceMatchResult) {
+        cancelUnknownPersonAutoCancel()
         if consensusEmployeeId == match.employeeId {
             consensusCount += 1
             consensusBestScore = max(consensusBestScore, match.similarity)

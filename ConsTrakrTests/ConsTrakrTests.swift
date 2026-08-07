@@ -57,6 +57,10 @@ struct ConsTrakrTests {
 
         FaceScanSettings.applyLevel(.standard)
         #expect(FaceScanSettings.scannerReadySummary() == "Standard · Blink · Look left · Look right · Close-up · 3D")
+        #expect(
+            FaceScanSettings.scannerReadyStepNames(include3D: false)
+                == ["Blink", "Look left", "Look right", "Close-up"]
+        )
     }
 
     @Test func faceScanLevelPresets() {

@@ -31,16 +31,18 @@ struct AttendanceScannerView: View {
                         .padding(.top, 12)
 
                     ScrollView {
-                        VStack(spacing: 14) {
-                            statusPanel
-                            actionButtons
-                        }
-                        .padding(.horizontal, horizontalPad)
-                        .padding(.top, 14)
-                        .padding(.bottom, 12)
+                        statusPanel
+                            .padding(.horizontal, horizontalPad)
+                            .padding(.top, 10)
+                            .padding(.bottom, 8)
                     }
                     .scrollIndicators(.hidden)
                     .frame(maxHeight: .infinity)
+
+                    actionButtons
+                        .padding(.horizontal, horizontalPad)
+                        .padding(.bottom, 12)
+                        .layoutPriority(1)
                 }
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 .onAppear {
@@ -96,6 +98,7 @@ struct AttendanceScannerView: View {
             }
             .onAppear {
                 viewModel.configure(context: modelContext, syncQueue: syncQueue)
+                viewModel.refreshScannerReadySteps()
                 Task { await viewModel.startCamera() }
             }
             .onDisappear {
@@ -103,6 +106,9 @@ struct AttendanceScannerView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceHistoryDidClear)) { _ in
                 viewModel.handleAttendanceHistoryCleared()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: FaceScanSettings.settingsDidChangeNotification)) { _ in
+                viewModel.refreshScannerReadySteps()
             }
         }
     }
@@ -179,30 +185,38 @@ struct AttendanceScannerView: View {
     // MARK: - Status
 
     private var statusPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: viewModel.isSessionActive ? 12 : 8) {
             if viewModel.isSessionActive && !viewModel.livenessPassed {
                 stepDots
             }
 
-            HStack(alignment: .top, spacing: 12) {
-                statusIcon
-                    .font(.title2)
-                    .foregroundStyle(statusAccent)
-                    .frame(width: 32)
+            HStack(alignment: .top, spacing: 10) {
+                if viewModel.isSessionActive {
+                    statusIcon
+                        .font(.title2)
+                        .foregroundStyle(statusAccent)
+                        .frame(width: 32)
+                }
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(statusTitle)
-                        .font(.headline)
+                        .font(viewModel.isSessionActive ? .headline : .subheadline.weight(.semibold))
 
-                    Text(viewModel.primaryInstruction)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if viewModel.isSessionActive {
+                        Text(viewModel.primaryInstruction)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
                     if let secondary = viewModel.secondaryInstruction {
                         Text(secondary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+
+                    if !viewModel.isSessionActive {
+                        readyScanStepsList
                     }
 
                     if viewModel.showsRecognitionDetails, let name = viewModel.lastMatchName {
@@ -215,12 +229,29 @@ struct AttendanceScannerView: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(16)
+        .padding(viewModel.isSessionActive ? 16 : 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(statusAccent.opacity(0.25), lineWidth: 1)
+        }
+    }
+
+    private var readyScanStepsList: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(viewModel.readyScanCompactLine)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !viewModel.readyScanExtras.isEmpty {
+                Text(viewModel.readyScanExtras.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -356,11 +387,6 @@ struct AttendanceScannerView: View {
                     viewModel.endSession(status: "Choose Time In or Time Out to begin.")
                 }
                 .buttonStyle(.bordered)
-            } else {
-                // Reserve space so the camera preview does not jump when a scan starts.
-                Color.clear
-                    .frame(height: 44)
-                    .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, 0)

@@ -55,27 +55,43 @@ final class SettingsViewModel {
     }
 
     var faceScanCenterEnabled = true {
-        didSet { applyFaceScanStep(.closeUp, enabled: faceScanCenterEnabled) }
+        didSet {
+            guard !isApplyingFaceScanBatch else { return }
+            Task { await saveFaceScanStep(.closeUp, enabled: faceScanCenterEnabled) }
+        }
     }
 
     var faceScanLeftEnabled = true {
-        didSet { applyFaceScanStep(.lookLeft, enabled: faceScanLeftEnabled) }
+        didSet {
+            guard !isApplyingFaceScanBatch else { return }
+            Task { await saveFaceScanStep(.lookLeft, enabled: faceScanLeftEnabled) }
+        }
     }
 
     var faceScanRightEnabled = true {
-        didSet { applyFaceScanStep(.lookRight, enabled: faceScanRightEnabled) }
+        didSet {
+            guard !isApplyingFaceScanBatch else { return }
+            Task { await saveFaceScanStep(.lookRight, enabled: faceScanRightEnabled) }
+        }
     }
 
     var faceScanUpEnabled = true {
-        didSet { applyFaceScanStep(.lookUp, enabled: faceScanUpEnabled) }
+        didSet {
+            guard !isApplyingFaceScanBatch else { return }
+            Task { await saveFaceScanStep(.lookUp, enabled: faceScanUpEnabled) }
+        }
     }
 
     var faceScanDownEnabled = true {
-        didSet { applyFaceScanStep(.lookDown, enabled: faceScanDownEnabled) }
+        didSet {
+            guard !isApplyingFaceScanBatch else { return }
+            Task { await saveFaceScanStep(.lookDown, enabled: faceScanDownEnabled) }
+        }
     }
 
     private(set) var faceScanSettingsMessage: String?
     private(set) var faceScanLevel: FaceScanSettings.Level?
+    private(set) var isSavingFaceScanSettings = false
     private var isApplyingFaceScanBatch = false
 
     var supervisorPINEnabled: Bool {
@@ -190,19 +206,27 @@ final class SettingsViewModel {
         isApplyingFaceScanBatch = false
     }
 
-    func selectFaceScanLevel(_ level: FaceScanSettings.Level) {
+    func selectFaceScanLevel(_ level: FaceScanSettings.Level) async {
+        isSavingFaceScanSettings = true
+        defer { isSavingFaceScanSettings = false }
         isApplyingFaceScanBatch = true
         FaceScanSettings.applyLevel(level)
+        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(180))
         reloadFaceScanPoseSettings()
         faceScanSettingsMessage = nil
     }
 
-    private func applyFaceScanStep(_ step: FaceScanSettings.Step, enabled: Bool) {
+    private func saveFaceScanStep(_ step: FaceScanSettings.Step, enabled: Bool) async {
         guard !isApplyingFaceScanBatch else { return }
         guard FaceScanSettings.isStepEnabled(step) != enabled else { return }
+        isSavingFaceScanSettings = true
+        defer { isSavingFaceScanSettings = false }
         FaceScanSettings.setStepEnabled(step, enabled)
-        faceScanSettingsMessage = nil
+        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(180))
         faceScanLevel = FaceScanSettings.matchingLevel()
+        faceScanSettingsMessage = nil
     }
 
     func testAPIConnection() async {

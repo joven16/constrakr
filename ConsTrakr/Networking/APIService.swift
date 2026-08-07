@@ -74,6 +74,11 @@ actor APIService {
         } catch let error as NetworkError {
             throw error
         } catch {
+            if let parsed = APIDecoding.parseLoginResponse(from: data) {
+                authToken = parsed.accessToken
+                SyncAuthStore.saveSession(token: parsed.accessToken, username: username, expiresIn: parsed.expiresIn)
+                return parsed
+            }
             if let apiError = APIDecoding.apiErrorMessage(from: data) {
                 throw NetworkError.serverError(
                     statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0,
@@ -83,9 +88,13 @@ actor APIService {
             let snippet = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .prefix(240)
+            let body = snippet.map(String.init) ?? "decode error"
+            let hint = body.lowercased().contains("<!doctype html") || body.lowercased().contains("<html")
+                ? " Check Base URL is host only, e.g. https://ims.rentelloph.com (not the web login page)."
+                : ""
             throw NetworkError.serverError(
                 statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0,
-                message: "Login response invalid (expected access_token JSON): \(snippet.map(String.init) ?? "decode error")"
+                message: "Login response invalid (expected access_token JSON): \(body)\(hint)"
             )
         }
     }
@@ -545,7 +554,7 @@ extension JSONDecoder {
                 debugDescription: "Invalid ISO8601 date: \(string)"
             )
         }
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.keyDecodingStrategy = .useDefaultKeys
         return decoder
     }()
 }

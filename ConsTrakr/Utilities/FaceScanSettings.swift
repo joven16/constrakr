@@ -8,6 +8,8 @@
 import Foundation
 
 enum FaceScanSettings {
+    static let settingsDidChangeNotification = Notification.Name("constrakr.faceScanSettingsDidChange")
+
     enum Step: String, CaseIterable, Identifiable {
         case closeUp
         case lookLeft
@@ -73,6 +75,7 @@ enum FaceScanSettings {
     @discardableResult
     static func setStepEnabled(_ step: Step, _ enabled: Bool) -> Bool {
         UserDefaults.standard.set(enabled, forKey: storageKey(for: step))
+        notifySettingsDidChange()
         return true
     }
 
@@ -80,6 +83,7 @@ enum FaceScanSettings {
         for step in Step.gestureOrder {
             UserDefaults.standard.set(level.enabledSteps.contains(step), forKey: storageKey(for: step))
         }
+        notifySettingsDidChange()
     }
 
     static func matchingLevel() -> Level? {
@@ -162,6 +166,10 @@ enum FaceScanSettings {
 
     private static func storageKey(for step: Step) -> String {
         "\(AppConstants.UserDefaultsKeys.faceScanStepPrefix).\(step.rawValue)"
+    }
+
+    private static func notifySettingsDidChange() {
+        NotificationCenter.default.post(name: settingsDidChangeNotification, object: nil)
     }
 
     /// One-time read from older registration-oriented keys (faceScan.pose.*).

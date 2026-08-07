@@ -266,6 +266,26 @@ enum APIDecoding {
         return nil
     }
 
+    /// Parses `{ "access_token": "...", "expires_in": 86400 }` from IMS login.
+    static func parseLoginResponse(from data: Data) -> AdminLoginResponse? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let token = stringValue(from: object, keys: ["access_token", "token"])
+        guard let token, !token.isEmpty else { return nil }
+        let expiresIn: Int?
+        if let value = object["expires_in"] as? Int {
+            expiresIn = value
+        } else if let value = object["expires_in"] as? Double {
+            expiresIn = Int(value)
+        } else if let text = object["expires_in"] as? String {
+            expiresIn = Int(text)
+        } else {
+            expiresIn = nil
+        }
+        return AdminLoginResponse(accessToken: token, expiresIn: expiresIn)
+    }
+
     /// Reads `{ "error": "..." }` from IMS API JSON bodies.
     static func apiErrorMessage(from data: Data?) -> String? {
         guard let data, !data.isEmpty,
