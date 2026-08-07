@@ -61,6 +61,7 @@ final class SyncService {
 
         let empRepo = EmployeeRepository(context: context)
         _ = try empRepo.repairStaleSyncState()
+        summary.jobSitesSynced = try await syncJobSites()
         await processPendingEmployeeDeletions()
         summary.employeesImportedFromIMS = try await importMissingRemoteEmployees(context: context)
 
@@ -115,6 +116,7 @@ final class SyncService {
     }
 
     struct PushSyncSummary {
+        var jobSitesSynced = 0
         var employeesPosted = 0
         var employeesLinked = 0
         var employeesImportedFromIMS = 0
@@ -273,17 +275,7 @@ final class SyncService {
             employee.syncStatus = .syncing
             try repo.update(employee, persist: false)
 
-            let dto = EmployeeDTO(
-                serverId: nil,
-                localId: employee.id,
-                employeeCode: employee.employeeCode,
-                firstName: employee.firstName,
-                lastName: employee.lastName,
-                department: employee.department,
-                encryptedDepthSignatureBase64: employee.faceDepthSignatureData.isEmpty
-                    ? nil
-                    : employee.faceDepthSignatureData.base64EncodedString()
-            )
+            let dto = EmployeeDTO.fromLocalEmployee(employee, serverId: nil)
             do {
                 let response = try await api.postEmployee(dto)
                 guard let serverId = APIDecoding.normalizedServerId(response.serverId) else {
@@ -384,17 +376,7 @@ final class SyncService {
             employee.syncStatus = .syncing
             try repo.update(employee, persist: false)
 
-            let dto = EmployeeDTO(
-                serverId: serverId,
-                localId: employee.id,
-                employeeCode: employee.employeeCode,
-                firstName: employee.firstName,
-                lastName: employee.lastName,
-                department: employee.department,
-                encryptedDepthSignatureBase64: employee.faceDepthSignatureData.isEmpty
-                    ? nil
-                    : employee.faceDepthSignatureData.base64EncodedString()
-            )
+            let dto = EmployeeDTO.fromLocalEmployee(employee, serverId: serverId)
             do {
                 _ = try await api.putEmployee(dto)
                 employee.syncStatus = .synced
@@ -651,6 +633,36 @@ final class SyncService {
         }
     }
 
+    /// Bidirectional job site catalog sync — runs before employee upload so assignments resolve.
+    private func syncJobSites() async throws -> Int {
+        for siteId in JobSiteStore.pendingDeleteIds {
+            do {
+                try await api.deleteJobSite(id: siteId)
+                JobSiteStore.clearPendingDelete(id: siteId)
+            } catch {
+                // Retry on next sync if offline or server error.
+            }
+        }
+
+        let remote = try await api.getJobSites()
+        JobSiteStore.applyRemoteCatalog(remote)
+
+        let toPush = JobSiteStore.sitesNeedingUpload(comparedTo: remote)
+        var pushed = 0
+        for site in toPush {
+            let dto = JobSiteDTO.fromLocal(site)
+            _ = try await api.postJobSite(dto)
+            pushed += 1
+        }
+
+        if pushed > 0 {
+            let remoteAfter = try await api.getJobSites()
+            JobSiteStore.applyRemoteCatalog(remoteAfter)
+        }
+
+        return pushed
+    }
+
     /// Pulls employees reactivated on IMS (Restore to app) that are missing on this device.
     private func importMissingRemoteEmployees(context: ModelContext) async throws -> Int {
         let empRepo = EmployeeRepository(context: context)
@@ -688,6 +700,11 @@ final class SyncService {
 
             if try empRepo.fetch(code: dto.employeeCode) != nil { continue }
 
+            JobSiteStore.ensureFromEmployeeAssignment(
+                id: dto.assignedSiteId,
+                name: dto.assignedSiteName,
+                location: dto.assignedSiteLocation
+            )
             let employee = try empRepo.upsertFromRemote(dto)
             imported += 1
             importedServerIds.insert(serverId)
@@ -739,12 +756,19 @@ final class SyncService {
         let embRepo = FaceEmbeddingRepository(context: context)
         let photoRepo = FaceEnrollmentPhotoRepository(context: context)
 
+        _ = try await syncJobSites()
+
         // INTEGRATION: GET /employees
         let remoteEmployees = try await api.getEmployees()
         var employeeCount = 0
         var localIdByServerId: [String: UUID] = [:]
 
         for dto in remoteEmployees {
+            JobSiteStore.ensureFromEmployeeAssignment(
+                id: dto.assignedSiteId,
+                name: dto.assignedSiteName,
+                location: dto.assignedSiteLocation
+            )
             let employee = try empRepo.upsertFromRemote(dto)
             employeeCount += 1
             if let serverId = employee.serverId {

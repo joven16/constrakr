@@ -20,6 +20,7 @@ enum ScannerRecognitionState {
     case verifying
     case recognized
     case alreadyRecorded
+    case wrongJobSite
 }
 
 @MainActor
@@ -82,7 +83,7 @@ final class AttendanceScannerViewModel {
 
     var showsRecognitionDetails: Bool {
         switch recognitionState {
-        case .recognized, .alreadyRecorded:
+        case .recognized, .alreadyRecorded, .wrongJobSite:
             return lastMatchName != nil && lastMatchConfidence != nil
         default:
             return false
@@ -121,6 +122,8 @@ final class AttendanceScannerViewModel {
         case .verifying:
             return statusMessage
         case .recognized, .alreadyRecorded:
+            return statusMessage
+        case .wrongJobSite:
             return statusMessage
         case .unknownPerson:
             return statusMessage.isEmpty ? "Face not recognized" : statusMessage
@@ -915,18 +918,19 @@ final class AttendanceScannerViewModel {
                 return
             }
 
-            if SiteGeofenceSettings.isRequired {
-                let employee = try? employeeService?.employee(id: match.employeeId)
-                if let site = JobSiteStore.site(for: employee?.assignedSiteId) {
-                    do {
-                        try await siteLocationGate.verifyInside(site: site)
-                    } catch {
-                        siteGateMessage = error.localizedDescription
-                        errorMessage = error.localizedDescription
-                        endSession(status: error.localizedDescription)
-                        lastScanDate = Date()
-                        return
-                    }
+            if let employee = try employeeService?.employee(id: match.employeeId) {
+                do {
+                    try await siteLocationGate.verifyAttendanceSite(for: employee)
+                } catch {
+                    await presentInvalidSitePunch(match: match, error: error)
+                    return
+                }
+            } else if SiteGeofenceSettings.isRequired, let defaultSite = JobSiteStore.defaultSite {
+                do {
+                    try await siteLocationGate.verifyInside(site: defaultSite)
+                } catch {
+                    await presentInvalidSitePunch(match: match, error: error)
+                    return
                 }
             }
 
@@ -969,6 +973,24 @@ final class AttendanceScannerViewModel {
             endSession(status: "Choose Time In or Time Out to begin.")
             lastScanDate = Date()
         }
+    }
+
+    private func presentInvalidSitePunch(match: FaceMatchResult, error: Error) async {
+        lastMatchName = match.employeeName
+        lastMatchConfidence = match.similarity
+        lastScanDate = Date()
+        successFlash = false
+        pendingPunchJPEG = nil
+        recognitionState = .wrongJobSite
+        let message = error.localizedDescription
+        statusMessage = message
+        siteGateMessage = message
+        errorMessage = message
+
+        try? await Task.sleep(for: .seconds(3.0))
+        siteGateMessage = nil
+        endSession(status: "Choose Time In or Time Out to begin.")
+        lastScanDate = Date()
     }
 
     private func presentAlreadyRecorded(match: FaceMatchResult, at timestamp: Date?) async {

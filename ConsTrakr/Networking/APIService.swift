@@ -254,6 +254,57 @@ actor APIService {
         try validate(data: data, response: response)
     }
 
+    // MARK: - Job sites
+
+    func getJobSites() async throws -> [JobSiteDTO] {
+        try rejectIfUnconfigured()
+        let request = try makeRequest(for: .getJobSites)
+        if isDemoHost { return [] }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        return try APIDecoding.decodeFlexibleList(
+            JobSiteDTO.self,
+            from: data,
+            arrayKeys: ["job_sites", "sites", "data", "results"]
+        )
+    }
+
+    func postJobSite(_ dto: JobSiteDTO) async throws -> JobSiteDTO {
+        try rejectIfUnconfigured()
+        var request = try makeRequest(for: .postJobSite)
+        request.httpBody = try JSONEncoder.api.encode(dto)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if isDemoHost { return dto }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        if let decoded = try? JSONDecoder.api.decode(JobSiteDTO.self, from: data) {
+            return decoded
+        }
+        return dto
+    }
+
+    func putJobSite(_ dto: JobSiteDTO) async throws -> JobSiteDTO {
+        try rejectIfUnconfigured()
+        var request = try makeRequest(for: .putJobSite(dto.id.uuidString))
+        request.httpBody = try JSONEncoder.api.encode(dto)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if isDemoHost { return dto }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        if let decoded = try? JSONDecoder.api.decode(JobSiteDTO.self, from: data) {
+            return decoded
+        }
+        return dto
+    }
+
+    func deleteJobSite(id: UUID) async throws {
+        try rejectIfUnconfigured()
+        let request = try makeRequest(for: .deleteJobSite(id.uuidString))
+        if isDemoHost { return }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+    }
+
     private func recoverEmployeeUpsert(localId: UUID, employeeCode: String) async throws -> EmployeeUpsertResponse? {
         let byLocal = try await getEmployees(localId: localId)
         if let match = byLocal.first,

@@ -15,6 +15,7 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
         case locationUnavailable
         case timedOut
         case outsideSite(siteName: String, distanceMeters: Double, radiusMeters: Double)
+        case wrongJobSite(assignedSiteName: String, detectedSiteName: String?)
 
         var errorDescription: String? {
             switch self {
@@ -27,7 +28,12 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
             case .outsideSite(let siteName, let distance, let radius):
                 let d = Int(distance.rounded())
                 let r = Int(radius.rounded())
-                return "Outside \(siteName) (\(d)m away; allowed \(r)m). Move to the site or update location in Settings → Job Sites."
+                return "Outside \(siteName) (\(d)m away; allowed \(r)m). This punch is invalid."
+            case .wrongJobSite(let assigned, let detected):
+                if let detected, !detected.isEmpty {
+                    return "Wrong job site — assigned to \(assigned) but you are at \(detected). This punch is invalid."
+                }
+                return "Wrong job site — you must be at \(assigned) to punch. This punch is invalid."
             }
         }
     }
@@ -52,6 +58,70 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
     func verifyInside(site: JobSite) async throws {
         guard site.hasCoordinate else { return }
 
+        let location = try await authorizedLocation()
+        let siteLocation = CLLocation(latitude: site.latitude, longitude: site.longitude)
+        let distance = location.distance(from: siteLocation)
+        if distance > site.radiusMeters {
+            throw GateError.outsideSite(
+                siteName: site.displayTitle,
+                distanceMeters: distance,
+                radiusMeters: site.radiusMeters
+            )
+        }
+    }
+
+    /// Validates GPS for a specific employee — uses assigned site when set; rejects punches at another configured site.
+    func verifyAttendanceSite(for employee: Employee) async throws {
+        guard let requiredSite = JobSiteStore.attendanceSite(for: employee) else {
+            if employee.assignedSiteId != nil, JobSiteStore.assignedSite(for: employee.assignedSiteId) == nil {
+                throw GateError.wrongJobSite(
+                    assignedSiteName: "Unknown site",
+                    detectedSiteName: nil
+                )
+            }
+            return
+        }
+
+        let location = try await authorizedLocation()
+        let siteLocation = CLLocation(latitude: requiredSite.latitude, longitude: requiredSite.longitude)
+        let distance = location.distance(from: siteLocation)
+
+        if distance <= requiredSite.radiusMeters { return }
+
+        if employee.assignedSiteId != nil,
+           let detected = JobSiteStore.siteContaining(location: location),
+           detected.id != requiredSite.id {
+            throw GateError.wrongJobSite(
+                assignedSiteName: requiredSite.displayTitle,
+                detectedSiteName: detected.displayTitle
+            )
+        }
+
+        throw GateError.outsideSite(
+            siteName: requiredSite.displayTitle,
+            distanceMeters: distance,
+            radiusMeters: requiredSite.radiusMeters
+        )
+    }
+
+    /// Returns whether the device is inside the site, without throwing for outside range.
+    func isInside(site: JobSite) async -> Result<Bool, GateError> {
+        do {
+            try await verifyInside(site: site)
+            return .success(true)
+        } catch let error as GateError {
+            switch error {
+            case .outsideSite, .wrongJobSite:
+                return .success(false)
+            default:
+                return .failure(error)
+            }
+        } catch {
+            return .failure(.locationUnavailable)
+        }
+    }
+
+    private func authorizedLocation() async throws -> CLLocation {
         let status = manager.authorizationStatus
         if status == .notDetermined {
             manager.requestWhenInUseAuthorization()
@@ -67,33 +137,7 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
             throw GateError.permissionDenied
         }
 
-        let location = try await requestLocation(timeoutSeconds: 8)
-        let siteLocation = CLLocation(latitude: site.latitude, longitude: site.longitude)
-        let distance = location.distance(from: siteLocation)
-        if distance > site.radiusMeters {
-            throw GateError.outsideSite(
-                siteName: site.displayTitle,
-                distanceMeters: distance,
-                radiusMeters: site.radiusMeters
-            )
-        }
-    }
-
-    /// Returns whether the device is inside the site, without throwing for outside range.
-    func isInside(site: JobSite) async -> Result<Bool, GateError> {
-        do {
-            try await verifyInside(site: site)
-            return .success(true)
-        } catch let error as GateError {
-            switch error {
-            case .outsideSite:
-                return .success(false)
-            default:
-                return .failure(error)
-            }
-        } catch {
-            return .failure(.locationUnavailable)
-        }
+        return try await requestLocation(timeoutSeconds: 8)
     }
 
     private func requestLocation(timeoutSeconds: Double) async throws -> CLLocation {

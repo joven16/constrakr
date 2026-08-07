@@ -302,6 +302,7 @@ struct AttendanceScannerView: View {
         case .verifying: return "Verifying"
         case .recognized: return "Matched"
         case .alreadyRecorded: return "Already recorded"
+        case .wrongJobSite: return "Invalid — wrong site"
         case .unknownPerson:
             return "Not recognized"
         case .poorQuality:
@@ -331,6 +332,8 @@ struct AttendanceScannerView: View {
             return Image(systemName: "checkmark.circle.fill")
         case .alreadyRecorded:
             return Image(systemName: "exclamationmark.circle.fill")
+        case .wrongJobSite:
+            return Image(systemName: "mappin.slash.circle.fill")
         case .unknownPerson:
             return Image(systemName: "person.slash")
         case .poorQuality:
@@ -349,6 +352,7 @@ struct AttendanceScannerView: View {
         switch viewModel.recognitionState {
         case .recognized: return .green
         case .alreadyRecorded: return .orange
+        case .wrongJobSite: return .red
         case .unknownPerson, .poorQuality: return .orange
         case .verifying: return .yellow
         default: return .teal
@@ -419,6 +423,7 @@ struct AttendanceScannerView: View {
         case .verifying: return .yellow.opacity(0.9)
         case .recognized: return .green
         case .alreadyRecorded: return .orange
+        case .wrongJobSite: return .red.opacity(0.9)
         case .idle: return viewModel.faceDetected ? .teal : .white.opacity(0.35)
         }
     }

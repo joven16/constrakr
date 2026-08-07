@@ -15,6 +15,18 @@ struct JobSite: Codable, Identifiable, Equatable, Hashable {
     var longitude: Double
     /// Allowed punch radius from the pinned coordinate.
     var radiusMeters: Double
+    /// Used for last-write-wins sync with IMS.
+    var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case locationLabel
+        case latitude
+        case longitude
+        case radiusMeters
+        case updatedAt
+    }
 
     init(
         id: UUID = UUID(),
@@ -22,7 +34,8 @@ struct JobSite: Codable, Identifiable, Equatable, Hashable {
         locationLabel: String = "",
         latitude: Double,
         longitude: Double,
-        radiusMeters: Double = 150
+        radiusMeters: Double = 150,
+        updatedAt: Date = Date()
     ) {
         self.id = id
         self.name = name
@@ -30,6 +43,18 @@ struct JobSite: Codable, Identifiable, Equatable, Hashable {
         self.latitude = latitude
         self.longitude = longitude
         self.radiusMeters = max(50, radiusMeters)
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        locationLabel = try container.decodeIfPresent(String.self, forKey: .locationLabel) ?? ""
+        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude) ?? 0
+        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude) ?? 0
+        radiusMeters = max(50, try container.decodeIfPresent(Double.self, forKey: .radiusMeters) ?? 150)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
     }
 
     var hasCoordinate: Bool {

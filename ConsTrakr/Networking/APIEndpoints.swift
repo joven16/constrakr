@@ -23,6 +23,11 @@ enum APIEndpoint {
     // Attendance
     case getAttendance(employeeServerId: String?, startDate: Date?, endDate: Date?, includeMedia: Bool)
     case postAttendance
+    // Job sites
+    case getJobSites
+    case postJobSite
+    case putJobSite(String)
+    case deleteJobSite(String)
     // Auth / health (restore gate)
     case adminLogin
     case healthCheck
@@ -41,6 +46,10 @@ enum APIEndpoint {
             return "\(Self.root)/face-enrollment-photos"
         case .getAttendance, .postAttendance:
             return "\(Self.root)/attendance"
+        case .getJobSites, .postJobSite:
+            return "\(Self.root)/job-sites"
+        case .putJobSite(let siteId), .deleteJobSite(let siteId):
+            return "\(Self.root)/job-sites/\(siteId)"
         case .adminLogin:
             return "\(Self.root)/auth/admin/login"
         case .healthCheck:
@@ -100,13 +109,13 @@ enum APIEndpoint {
 
     var method: String {
         switch self {
-        case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postAttendance, .adminLogin:
+        case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postAttendance, .postJobSite, .adminLogin:
             return "POST"
-        case .putEmployee:
+        case .putEmployee, .putJobSite:
             return "PUT"
-        case .deleteEmployee:
+        case .deleteEmployee, .deleteJobSite:
             return "DELETE"
-        case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getAttendance, .healthCheck:
+        case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getAttendance, .getJobSites, .healthCheck:
             return "GET"
         }
     }
@@ -123,6 +132,9 @@ struct EmployeeDTO: Codable, Identifiable {
     let firstName: String
     let lastName: String
     let department: String
+    let assignedSiteId: UUID?
+    let assignedSiteName: String?
+    let assignedSiteLocation: String?
     /// AES-GCM encrypted TrueDepth signature (empty when device has no TrueDepth).
     let encryptedDepthSignatureBase64: String?
     let updatedAt: Date?
@@ -138,6 +150,9 @@ struct EmployeeDTO: Codable, Identifiable {
         case firstName = "first_name"
         case lastName = "last_name"
         case department
+        case assignedSiteId = "assigned_site_id"
+        case assignedSiteName = "assigned_site_name"
+        case assignedSiteLocation = "assigned_site_location"
         case encryptedDepthSignatureBase64 = "encrypted_depth_signature_base64"
         case encryptedDepthSignature = "encrypted_depth_signature"
         case updatedAt = "updated_at"
@@ -151,6 +166,9 @@ struct EmployeeDTO: Codable, Identifiable {
         firstName: String,
         lastName: String,
         department: String,
+        assignedSiteId: UUID? = nil,
+        assignedSiteName: String? = nil,
+        assignedSiteLocation: String? = nil,
         encryptedDepthSignatureBase64: String? = nil,
         updatedAt: Date? = nil,
         createdAt: Date? = nil
@@ -161,9 +179,33 @@ struct EmployeeDTO: Codable, Identifiable {
         self.firstName = firstName
         self.lastName = lastName
         self.department = department
+        self.assignedSiteId = assignedSiteId
+        self.assignedSiteName = assignedSiteName
+        self.assignedSiteLocation = assignedSiteLocation
         self.encryptedDepthSignatureBase64 = encryptedDepthSignatureBase64
         self.updatedAt = updatedAt
         self.createdAt = createdAt
+    }
+
+    /// Builds sync payload including denormalized job site labels for IMS display.
+    static func fromLocalEmployee(_ employee: Employee, serverId: String?) -> EmployeeDTO {
+        let site = JobSiteStore.syncFields(for: employee.assignedSiteId)
+        return EmployeeDTO(
+            serverId: serverId,
+            localId: employee.id,
+            employeeCode: employee.employeeCode,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            department: employee.department,
+            assignedSiteId: site.id,
+            assignedSiteName: site.name,
+            assignedSiteLocation: site.location,
+            encryptedDepthSignatureBase64: employee.faceDepthSignatureData.isEmpty
+                ? nil
+                : employee.faceDepthSignatureData.base64EncodedString(),
+            updatedAt: employee.updatedAt,
+            createdAt: employee.createdAt
+        )
     }
 
     init(from decoder: Decoder) throws {
@@ -175,6 +217,9 @@ struct EmployeeDTO: Codable, Identifiable {
         firstName = try container.decodeIfPresent(String.self, forKey: .firstName) ?? ""
         lastName = try container.decodeIfPresent(String.self, forKey: .lastName) ?? ""
         department = try container.decodeIfPresent(String.self, forKey: .department) ?? "General"
+        assignedSiteId = try container.decodeIfPresent(UUID.self, forKey: .assignedSiteId)
+        assignedSiteName = try container.decodeIfPresent(String.self, forKey: .assignedSiteName)
+        assignedSiteLocation = try container.decodeIfPresent(String.self, forKey: .assignedSiteLocation)
         encryptedDepthSignatureBase64 = try container.decodeIfPresent(
             String.self,
             forKey: .encryptedDepthSignatureBase64
@@ -204,9 +249,79 @@ struct EmployeeDTO: Codable, Identifiable {
         try container.encode(firstName, forKey: .firstName)
         try container.encode(lastName, forKey: .lastName)
         try container.encode(department, forKey: .department)
+        try container.encodeIfPresent(assignedSiteId, forKey: .assignedSiteId)
+        try container.encodeIfPresent(assignedSiteName, forKey: .assignedSiteName)
+        try container.encodeIfPresent(assignedSiteLocation, forKey: .assignedSiteLocation)
         try container.encodeIfPresent(encryptedDepthSignatureBase64, forKey: .encryptedDepthSignatureBase64)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(createdAt, forKey: .createdAt)
+    }
+}
+
+struct JobSiteDTO: Codable, Identifiable {
+    let id: UUID
+    let name: String
+    let locationLabel: String?
+    let latitude: Double
+    let longitude: Double
+    let radiusMeters: Double
+    let updatedAt: Date?
+    let deletedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case locationLabel = "location_label"
+        case latitude
+        case longitude
+        case radiusMeters = "radius_meters"
+        case updatedAt = "updated_at"
+        case deletedAt = "deleted_at"
+    }
+
+    init(
+        id: UUID,
+        name: String,
+        locationLabel: String? = nil,
+        latitude: Double = 0,
+        longitude: Double = 0,
+        radiusMeters: Double = 150,
+        updatedAt: Date? = nil,
+        deletedAt: Date? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.locationLabel = locationLabel
+        self.latitude = latitude
+        self.longitude = longitude
+        self.radiusMeters = radiusMeters
+        self.updatedAt = updatedAt
+        self.deletedAt = deletedAt
+    }
+
+    static func fromLocal(_ site: JobSite) -> JobSiteDTO {
+        let location = site.locationLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return JobSiteDTO(
+            id: site.id,
+            name: site.displayTitle,
+            locationLabel: location.isEmpty ? nil : location,
+            latitude: site.latitude,
+            longitude: site.longitude,
+            radiusMeters: site.radiusMeters,
+            updatedAt: site.updatedAt
+        )
+    }
+
+    func toJobSite() -> JobSite {
+        JobSite(
+            id: id,
+            name: name,
+            locationLabel: locationLabel ?? "",
+            latitude: latitude,
+            longitude: longitude,
+            radiusMeters: radiusMeters,
+            updatedAt: updatedAt ?? .distantPast
+        )
     }
 }
 

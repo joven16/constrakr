@@ -83,6 +83,9 @@ enum APIDecoding {
             firstName: stringValue(from: dict, keys: ["first_name"]) ?? "",
             lastName: stringValue(from: dict, keys: ["last_name"]) ?? "",
             department: stringValue(from: dict, keys: ["department"]) ?? "General",
+            assignedSiteId: uuidValue(from: dict, key: "assigned_site_id"),
+            assignedSiteName: stringValue(from: dict, keys: ["assigned_site_name"]),
+            assignedSiteLocation: stringValue(from: dict, keys: ["assigned_site_location"]),
             encryptedDepthSignatureBase64: stringValue(
                 from: dict,
                 keys: ["encrypted_depth_signature_base64", "encrypted_depth_signature"]
