@@ -10,6 +10,7 @@ import AVFoundation
 import CoreVideo
 import Foundation
 import SwiftData
+import UIKit
 
 enum RegistrationStep: Int, CaseIterable {
     case details = 0
