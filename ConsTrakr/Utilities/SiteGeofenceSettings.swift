@@ -26,7 +26,7 @@ enum SiteGeofenceSettings {
 
     static var legacyRadiusMeters: Double {
         let stored = UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.siteRadiusMeters)
-        return stored > 0 ? stored : 150
+        return stored > 0 ? stored : 100
     }
 
     static var legacyHasSiteCoordinate: Bool {
@@ -48,10 +48,10 @@ enum SiteGeofenceSettings {
     }
 
     static var radiusMeters: Double {
-        get { JobSiteStore.defaultSite?.radiusMeters ?? 150 }
+        get { JobSiteStore.defaultSite?.radiusMeters ?? 100 }
         set {
             guard var site = JobSiteStore.defaultSite else { return }
-            site.radiusMeters = max(50, newValue)
+            site.radiusMeters = JobSite.clampedRadius(newValue)
             JobSiteStore.upsert(site)
         }
     }

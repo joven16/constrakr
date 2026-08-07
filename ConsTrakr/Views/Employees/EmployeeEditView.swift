@@ -9,6 +9,7 @@ import SwiftData
 struct EmployeeEditView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(SyncQueue.self) private var syncQueue
 
     let employee: Employee
 
@@ -103,6 +104,7 @@ struct EmployeeEditView: View {
                 department: department,
                 assignedSiteId: assignedSiteId
             )
+            Task { await syncQueue.syncNow() }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

@@ -98,6 +98,7 @@ struct AttendanceScannerView: View {
             }
             .onAppear {
                 viewModel.configure(context: modelContext, syncQueue: syncQueue)
+                ClockIntegrityGuard.shared.bootstrapIfNeeded()
                 viewModel.refreshScannerReadySteps()
                 Task { await viewModel.startCamera() }
             }
@@ -154,36 +155,58 @@ struct AttendanceScannerView: View {
     }
 
     private var topChip: some View {
-        Group {
+        VStack(spacing: 6) {
+            operatingSiteChip
             if viewModel.isSessionActive {
-                HStack(spacing: 8) {
-                    Image(systemName: viewModel.checkType.systemImage)
-                    Text(viewModel.checkType.displayName)
-                        .fontWeight(.bold)
-
-                    if !viewModel.livenessPassed {
-                        Text("·")
-                            .foregroundStyle(.secondary)
-                        Text(viewModel.livenessStepLabel)
-                            .fontWeight(.semibold)
-                    } else if viewModel.recognitionState == .verifying {
-                        Text("· Verifying")
-                            .fontWeight(.semibold)
-                    } else if viewModel.successFlash {
-                        Text("· Saved")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.green)
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(.black.opacity(0.45), in: Capsule())
-                .overlay {
-                    Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1)
-                }
+                sessionChip
             }
+        }
+    }
+
+    private var operatingSiteChip: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "mappin.circle.fill")
+            Text(viewModel.operatingSiteLabel)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+        }
+        .font(.caption)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.45), in: Capsule())
+        .overlay {
+            Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1)
+        }
+    }
+
+    private var sessionChip: some View {
+        HStack(spacing: 8) {
+            Image(systemName: viewModel.checkType.systemImage)
+            Text(viewModel.checkType.displayName)
+                .fontWeight(.bold)
+
+            if !viewModel.livenessPassed {
+                Text("·")
+                    .foregroundStyle(.secondary)
+                Text(viewModel.livenessStepLabel)
+                    .fontWeight(.semibold)
+            } else if viewModel.recognitionState == .verifying {
+                Text("· Verifying")
+                    .fontWeight(.semibold)
+            } else if viewModel.successFlash {
+                Text("· Saved")
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.green)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.45), in: Capsule())
+        .overlay {
+            Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1)
         }
     }
 

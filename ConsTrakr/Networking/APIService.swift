@@ -122,12 +122,37 @@ actor APIService {
     }
 
     func healthCheck() async throws -> Bool {
+        _ = try await fetchServerTime()
+        return true
+    }
+
+    func fetchServerTime() async throws -> Date {
         try rejectIfUnconfigured()
-        if isDemoHost { return true }
+        if isDemoHost { return Date() }
         let request = try makeRequest(for: .healthCheck)
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
-        return true
+
+        struct HealthResponse: Decodable {
+            let serverTime: Date?
+
+            enum CodingKeys: String, CodingKey {
+                case serverTime = "server_time"
+            }
+        }
+
+        if let decoded = try? JSONDecoder.api.decode(HealthResponse.self, from: data),
+           let serverTime = decoded.serverTime {
+            return serverTime
+        }
+
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let raw = object["server_time"] as? String,
+           let parsed = APIDecoding.parseISO8601(raw) {
+            return parsed
+        }
+
+        throw NetworkError.decodingFailed(message: "Health response missing server_time")
     }
 
     // MARK: - Employees
@@ -451,13 +476,16 @@ actor APIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         if isDemoHost {
-            return AttendanceUpsertResponse(serverId: "srv-att-\(dto.localId.uuidString)", localId: dto.localId)
+            return AttendanceUpsertResponse(serverId: "srv-att-\(dto.localId.uuidString)", localId: dto.localId, timestamp: dto.timestamp)
         }
 
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
+        if let decoded = try? JSONDecoder.api.decode(AttendanceUpsertResponse.self, from: data) {
+            return decoded
+        }
         let parsed = try APIDecoding.decodeUpsertResponse(from: data, expectedLocalId: dto.localId)
-        return AttendanceUpsertResponse(serverId: parsed.serverId, localId: parsed.localId)
+        return AttendanceUpsertResponse(serverId: parsed.serverId, localId: parsed.localId, timestamp: dto.timestamp)
     }
 
     // MARK: - Helpers

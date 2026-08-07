@@ -71,6 +71,8 @@ final class AttendanceScannerViewModel {
     /// When geofence is on, blocks the scanner UI until the phone is at the default job site.
     private(set) var isScannerLocationBlocked = false
     private(set) var scannerLocationMessage: String?
+    /// Default job site from Settings, shown on the scanner frame.
+    private(set) var operatingSiteLabel = JobSiteStore.currentOperatingSiteLabel()
     /// Blocks alert-dismiss `cancelConfirm` from wiping an in-flight Time In/Out start.
     private var isStartingAuthorizedSession = false
 
@@ -215,6 +217,7 @@ final class AttendanceScannerViewModel {
 
     /// Reloads Ready-screen steps from Settings → Face Scanner (call on scanner open).
     func refreshScannerReadySteps() {
+        operatingSiteLabel = JobSiteStore.currentOperatingSiteLabel()
         readyScanPresetLabel = FaceScanSettings.scannerPresetLabel()
         readyScanStepLabels = FaceScanSettings.scannerReadyStepNames(include3D: scannerDepthAvailable)
         readyScanCompactLine = Self.makeReadyCompactLine(
@@ -904,6 +907,7 @@ final class AttendanceScannerViewModel {
         let key = recordKey(employeeId: match.employeeId, checkType: checkType)
 
         do {
+            try await ClockIntegrityGuard.shared.verifyBeforePunch()
             try await verifySiteBeforePunch(employeeId: match.employeeId)
 
             if let existing = try attendanceService.todaysRecord(
@@ -920,13 +924,16 @@ final class AttendanceScannerViewModel {
                 return
             }
 
+            let punchTime = ClockIntegrityGuard.shared.preferredPunchTimestamp()
             let attendance = try attendanceService.record(
                 employeeId: match.employeeId,
                 checkType: checkType,
                 confidence: Double(match.similarity),
                 notes: "Matched pose: \(match.matchedPose.rawValue)",
-                punchPhotoJPEG: pendingPunchJPEG
+                punchPhotoJPEG: pendingPunchJPEG,
+                timestamp: punchTime
             )
+            ClockIntegrityGuard.shared.recordSuccessfulPunch()
             pendingPunchJPEG = nil
             recordedKeysToday.insert(key)
             lastMatchName = match.employeeName
@@ -947,6 +954,9 @@ final class AttendanceScannerViewModel {
             successFlash = false
             endSession(status: "Choose Time In or Time Out to begin.")
             lastScanDate = Date()
+        } catch let error as ClockIntegrityError {
+            await presentClockIntegrityError(match: match, error: error)
+            return
         } catch let error as SiteLocationGate.GateError {
             await presentInvalidSitePunch(match: match, error: error)
             return
@@ -973,6 +983,24 @@ final class AttendanceScannerViewModel {
         if SiteGeofenceSettings.isRequired, let defaultSite = JobSiteStore.defaultSite {
             try await siteLocationGate.verifyInside(site: defaultSite)
         }
+    }
+
+    private func presentClockIntegrityError(match: FaceMatchResult, error: ClockIntegrityError) async {
+        lastMatchName = match.employeeName
+        lastMatchConfidence = match.similarity
+        lastScanDate = Date()
+        successFlash = false
+        pendingPunchJPEG = nil
+        recognitionState = .wrongJobSite
+        let message = error.localizedDescription
+        statusMessage = message
+        siteGateMessage = message
+        errorMessage = message
+
+        try? await Task.sleep(for: .seconds(3.0))
+        siteGateMessage = nil
+        endSession(status: "Choose Time In or Time Out to begin.")
+        lastScanDate = Date()
     }
 
     private func presentInvalidSitePunch(match: FaceMatchResult, error: Error) async {

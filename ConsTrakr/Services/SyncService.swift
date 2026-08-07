@@ -605,6 +605,9 @@ final class SyncService {
             do {
                 let response = try await self.api.postAttendance(dto)
                 record.serverId = response.serverId
+                if let authoritativeTimestamp = response.timestamp {
+                    record.timestamp = authoritativeTimestamp
+                }
                 try attRepo.updateSyncStatus(record, status: .synced, persist: false)
             } catch {
                 try? attRepo.updateSyncStatus(record, status: .failed, persist: false)

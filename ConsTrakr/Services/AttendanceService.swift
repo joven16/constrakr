@@ -21,7 +21,8 @@ final class AttendanceService {
         checkType: CheckType,
         confidence: Double,
         notes: String? = nil,
-        punchPhotoJPEG: Data? = nil
+        punchPhotoJPEG: Data? = nil,
+        timestamp: Date = Date()
     ) throws -> Attendance {
         if try repository.hasRecordedToday(employeeId: employeeId, checkType: checkType) {
             throw ServiceError.alreadyRecordedToday(checkType)
@@ -35,7 +36,7 @@ final class AttendanceService {
             employeeId: employeeId,
             employeeServerId: employeeServerId,
             checkType: checkType,
-            timestamp: Date(),
+            timestamp: timestamp,
             syncStatus: .pending,
             confidenceScore: confidence,
             notes: notes

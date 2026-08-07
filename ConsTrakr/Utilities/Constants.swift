@@ -30,6 +30,10 @@ enum AppConstants {
     static let scannerWarmupFrames: Int = 3
     static let scannerConsensusFrames: Int = 2
     static let registrationResetDelay: TimeInterval = 2.5
+    /// Maximum allowed drift between device clock and IMS server time when online.
+    static let maxClockDriftSeconds: TimeInterval = 300
+    /// Detect manual date/time changes between punches.
+    static let maxClockJumpToleranceSeconds: TimeInterval = 120
 
     enum UserDefaultsKeys {
         static let apiBaseURL = "settings.apiBaseURL"
@@ -54,6 +58,7 @@ enum AppConstants {
         static let pendingJobSiteDeletions = "sync.pendingJobSiteDeletions"
         static let lastRemoteJobSiteIds = "sync.lastRemoteJobSiteIds"
         static let pendingEmployeeDeletions = "sync.pendingEmployeeDeletions"
+        static let clockIntegrityCheckpoint = "settings.clockIntegrityCheckpoint"
     }
 
     enum Notifications {

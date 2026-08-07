@@ -221,7 +221,7 @@ enum JobSiteStore {
             locationLabel: location ?? "",
             latitude: 0,
             longitude: 0,
-            radiusMeters: 150,
+            radiusMeters: 100,
             updatedAt: .distantPast
         )
         upsert(stub, touchUpdatedAt: false)

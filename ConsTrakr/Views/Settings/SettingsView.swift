@@ -261,6 +261,7 @@ struct SettingsView: View {
                         LabeledContent("Coordinates", value: String(format: "%.4f, %.4f", site.latitude, site.longitude))
                     }
                 }
+
             } header: {
                 Text("Job site geofence")
             } footer: {

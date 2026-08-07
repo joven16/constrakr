@@ -177,13 +177,27 @@ final class EmployeeService {
         NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
     }
 
-    /// Pull latest name, department, and job site from IMS before attendance validation.
+    /// Pull IMS profile edits before attendance validation, without undoing local changes.
     func refreshProfileFromServer(_ employee: Employee) async {
         guard NetworkMonitor.shared.isConnected else { return }
+        guard APIDecoding.normalizedServerId(employee.serverId) != nil else { return }
+
+        switch employee.syncStatus {
+        case .pending, .failed:
+            await pushPendingProfileToServer(employee)
+            return
+        case .syncing:
+            return
+        case .synced:
+            break
+        }
+
         guard let serverId = APIDecoding.normalizedServerId(employee.serverId) else { return }
         do {
             let dtos = try await APIService.shared.getEmployees(serverId: serverId)
             guard let dto = dtos.first else { return }
+            guard let remoteUpdated = dto.updatedAt, remoteUpdated > employee.updatedAt else { return }
+
             employee.firstName = dto.firstName
             employee.lastName = dto.lastName
             employee.department = dto.department
@@ -193,12 +207,28 @@ final class EmployeeService {
                 name: dto.assignedSiteName,
                 location: dto.assignedSiteLocation
             )
-            if let remoteUpdated = dto.updatedAt {
-                employee.updatedAt = remoteUpdated
-            }
+            employee.updatedAt = remoteUpdated
             try repository.update(employee)
         } catch {
             // Offline or transient API errors — validate against last known local profile.
+        }
+    }
+
+    /// Upload a pending profile edit (including job site) before validating attendance.
+    private func pushPendingProfileToServer(_ employee: Employee) async {
+        guard let serverId = APIDecoding.normalizedServerId(employee.serverId) else { return }
+
+        employee.syncStatus = .syncing
+        try? repository.update(employee)
+
+        let dto = EmployeeDTO.fromLocalEmployee(employee, serverId: serverId)
+        do {
+            _ = try await APIService.shared.putEmployee(dto)
+            employee.syncStatus = .synced
+            try repository.update(employee)
+        } catch {
+            employee.syncStatus = .failed
+            try? repository.update(employee)
         }
     }
 

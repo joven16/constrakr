@@ -291,7 +291,7 @@ struct JobSiteDTO: Codable, Identifiable {
         locationLabel: String? = nil,
         latitude: Double = 0,
         longitude: Double = 0,
-        radiusMeters: Double = 150,
+        radiusMeters: Double = 100,
         updatedAt: Date? = nil,
         deletedAt: Date? = nil
     ) {
@@ -584,16 +584,27 @@ struct AttendanceDTO: Codable {
 struct AttendanceUpsertResponse: Decodable {
     let serverId: String
     let localId: UUID
+    let timestamp: Date?
+    let clockDriftFlagged: Bool?
 
     enum CodingKeys: String, CodingKey {
         case serverId = "server_id"
         case id
         case localId = "local_id"
+        case timestamp
+        case clockDriftFlagged = "clock_drift_flagged"
     }
 
-    init(serverId: String, localId: UUID) {
+    init(
+        serverId: String,
+        localId: UUID,
+        timestamp: Date? = nil,
+        clockDriftFlagged: Bool? = nil
+    ) {
         self.serverId = serverId
         self.localId = localId
+        self.timestamp = timestamp
+        self.clockDriftFlagged = clockDriftFlagged
     }
 
     init(from decoder: Decoder) throws {
@@ -609,6 +620,8 @@ struct AttendanceUpsertResponse: Decodable {
             )
         }
         localId = try container.decode(UUID.self, forKey: .localId)
+        timestamp = try container.decodeIfPresent(Date.self, forKey: .timestamp)
+        clockDriftFlagged = try container.decodeIfPresent(Bool.self, forKey: .clockDriftFlagged)
     }
 }
 
