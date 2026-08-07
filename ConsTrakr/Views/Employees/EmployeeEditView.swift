@@ -16,6 +16,7 @@ struct EmployeeEditView: View {
     @State private var firstName = ""
     @State private var lastName = ""
     @State private var department = ""
+    @State private var assignedSiteId: UUID?
     @State private var errorMessage: String?
     @State private var isSaving = false
 
@@ -44,7 +45,15 @@ struct EmployeeEditView: View {
             } header: {
                 Text("Employee Information")
             } footer: {
-                Text("Face enrollment is unchanged. Edit profile details only.")
+                Text("Face enrollment is unchanged.")
+            }
+
+            Section {
+                JobSitePickerField(selectedSiteId: $assignedSiteId, allowNone: true)
+            } header: {
+                Text("Job Site")
+            } footer: {
+                Text("Pick where this employee must be for Time In / Time Out. Choose “None” to use the app default site from Settings.")
             }
         }
         .navigationTitle("Edit Employee")
@@ -62,6 +71,13 @@ struct EmployeeEditView: View {
             firstName = employee.firstName
             lastName = employee.lastName
             department = employee.department
+            assignedSiteId = employee.assignedSiteId
+        }
+        .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
+            // Refresh picker when sites are added or edited elsewhere.
+            if assignedSiteId != nil, JobSiteStore.site(id: assignedSiteId) == nil {
+                assignedSiteId = nil
+            }
         }
         .alert("Could Not Save", isPresented: Binding(
             get: { errorMessage != nil },
@@ -84,7 +100,8 @@ struct EmployeeEditView: View {
                 employeeCode: employeeCode,
                 firstName: firstName,
                 lastName: lastName,
-                department: department
+                department: department,
+                assignedSiteId: assignedSiteId
             )
             dismiss()
         } catch {

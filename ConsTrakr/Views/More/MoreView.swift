@@ -16,6 +16,12 @@ struct MoreView: View {
         NavigationStack {
             List {
                 NavigationLink {
+                    JobSitesListView()
+                } label: {
+                    Label("Job Sites", systemImage: "mappin.and.ellipse")
+                }
+
+                NavigationLink {
                     SettingsView(embedsNavigation: false)
                 } label: {
                     Label("Settings", systemImage: "gearshape.fill")

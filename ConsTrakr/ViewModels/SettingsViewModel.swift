@@ -111,22 +111,40 @@ final class SettingsViewModel {
 
     var siteGeofenceEnabled: Bool {
         didSet {
-            if siteGeofenceEnabled && !SiteGeofenceSettings.hasSiteCoordinate {
+            if siteGeofenceEnabled && !JobSiteStore.hasConfiguredSites {
                 siteGeofenceEnabled = false
-                statusMessage = "Set the job site location first."
+                statusMessage = "Add a job site under More → Job Sites first."
                 return
             }
             SiteGeofenceSettings.isEnabled = siteGeofenceEnabled
         }
     }
 
-    var siteRadiusMeters: Double {
-        didSet {
-            SiteGeofenceSettings.radiusMeters = siteRadiusMeters
+    var defaultJobSiteId: UUID?
+
+    func setDefaultJobSiteId(_ id: UUID?) {
+        guard !isSyncingDefaultSiteFromStore else { return }
+        guard defaultJobSiteId != id else { return }
+        defaultJobSiteId = id
+        if JobSiteStore.defaultSiteId != id {
+            JobSiteStore.defaultSiteId = id
         }
     }
 
-    private(set) var isCapturingSiteLocation = false
+    var configuredJobSites: [JobSite] {
+        JobSiteStore.allSites.filter(\.hasCoordinate)
+    }
+
+    /// Picker-safe selection — always matches a configured site when sites exist.
+    var effectiveDefaultSiteId: UUID? {
+        if let defaultJobSiteId,
+           configuredJobSites.contains(where: { $0.id == defaultJobSiteId }) {
+            return defaultJobSiteId
+        }
+        return configuredJobSites.first?.id
+    }
+
+    private var isSyncingDefaultSiteFromStore = false
 
     var adminUsername = ""
     var adminPassword = ""
@@ -153,7 +171,8 @@ final class SettingsViewModel {
         uploadRawFramesEnabled = UserDefaults.standard.bool(forKey: AppConstants.UserDefaultsKeys.uploadRawFramesEnabled)
         supervisorPINEnabled = SupervisorPINSettings.isRequired
         siteGeofenceEnabled = SiteGeofenceSettings.isRequired
-        siteRadiusMeters = SiteGeofenceSettings.radiusMeters
+        defaultJobSiteId = JobSiteStore.defaultSiteId
+            ?? JobSiteStore.allSites.first(where: \.hasCoordinate)?.id
         reloadFaceScanPoseSettings()
     }
 
@@ -181,7 +200,21 @@ final class SettingsViewModel {
             adminUsername = saved
         }
         reloadFaceScanPoseSettings()
+        syncDefaultJobSiteFromStore()
         statusMessage = resolvedSyncStatusMessage()
+    }
+
+    func reloadJobSiteSettings() {
+        syncDefaultJobSiteFromStore()
+    }
+
+    private func syncDefaultJobSiteFromStore() {
+        isSyncingDefaultSiteFromStore = true
+        let resolved = JobSiteStore.defaultSiteId ?? configuredJobSites.first?.id
+        if defaultJobSiteId != resolved {
+            defaultJobSiteId = resolved
+        }
+        isSyncingDefaultSiteFromStore = false
     }
 
     private func resolvedSyncStatusMessage() -> String? {
@@ -340,70 +373,5 @@ final class SettingsViewModel {
         newSupervisorPIN = ""
         confirmSupervisorPIN = ""
         statusMessage = "Supervisor PIN cleared."
-    }
-
-    func useCurrentLocationAsSite() async {
-        isCapturingSiteLocation = true
-        defer { isCapturingSiteLocation = false }
-        do {
-            let location = try await Self.requestOneShotLocation()
-            SiteGeofenceSettings.setSite(
-                coordinate: location.coordinate,
-                radiusMeters: siteRadiusMeters
-            )
-            siteGeofenceEnabled = true
-            statusMessage = String(
-                format: "Job site set (%.5f, %.5f) · ±%.0fm",
-                location.coordinate.latitude,
-                location.coordinate.longitude,
-                siteRadiusMeters
-            )
-        } catch {
-            statusMessage = error.localizedDescription
-        }
-    }
-
-    func clearSiteLocation() {
-        SiteGeofenceSettings.clearSite()
-        siteGeofenceEnabled = false
-        statusMessage = "Job site geofence cleared."
-    }
-
-    private static func requestOneShotLocation() async throws -> CLLocation {
-        final class OneShot: NSObject, CLLocationManagerDelegate, @unchecked Sendable {
-            let manager = CLLocationManager()
-            var continuation: CheckedContinuation<CLLocation, Error>?
-
-            func capture() async throws -> CLLocation {
-                try await withCheckedThrowingContinuation { continuation in
-                    self.continuation = continuation
-                    manager.delegate = self
-                    manager.desiredAccuracy = kCLLocationAccuracyBest
-                    manager.requestLocation()
-                }
-            }
-
-            func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-                guard let location = locations.last else { return }
-                continuation?.resume(returning: location)
-                continuation = nil
-            }
-
-            func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-                continuation?.resume(throwing: error)
-                continuation = nil
-            }
-        }
-
-        let shooter = OneShot()
-        let status = shooter.manager.authorizationStatus
-        guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else {
-            throw SiteLocationGate.GateError.permissionDenied
-        }
-        if status == .notDetermined {
-            shooter.manager.requestWhenInUseAuthorization()
-            try await Task.sleep(for: .milliseconds(600))
-        }
-        return try await shooter.capture()
     }
 }

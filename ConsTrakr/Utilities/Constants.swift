@@ -49,6 +49,8 @@ enum AppConstants {
         static let siteLatitude = "settings.siteLatitude"
         static let siteLongitude = "settings.siteLongitude"
         static let siteRadiusMeters = "settings.siteRadiusMeters"
+        static let jobSitesJSON = "settings.jobSitesJSON"
+        static let defaultJobSiteId = "settings.defaultJobSiteId"
         static let pendingEmployeeDeletions = "sync.pendingEmployeeDeletions"
     }
 

@@ -298,12 +298,23 @@ struct EmployeeDetailView: View {
         EnrollmentPhotoStore.loadAll(employeeId: employee.id)
     }
 
+    private var assignedSiteLabel: String {
+        if let id = employee.assignedSiteId, let site = JobSiteStore.site(id: id) {
+            return site.displayTitle
+        }
+        if let defaultSite = JobSiteStore.defaultSite {
+            return "\(defaultSite.displayTitle) (default)"
+        }
+        return "Not set — tap Edit to assign"
+    }
+
     var body: some View {
         List {
             Section("Profile") {
                 LabeledContent("Code", value: employee.employeeCode)
                 LabeledContent("Name", value: employee.fullName)
                 LabeledContent("Department", value: employee.department)
+                LabeledContent("Job site", value: assignedSiteLabel)
                 LabeledContent("Enrolled", value: employee.isEnrolled ? "Yes" : "No")
                 LabeledContent("IMS status") {
                     CloudStatusBadge(status: cloudStatus)

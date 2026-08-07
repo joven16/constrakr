@@ -35,6 +35,7 @@ final class EmployeeService {
         firstName: String,
         lastName: String,
         department: String,
+        assignedSiteId: UUID? = nil,
         embeddings: [FaceEmbedding],
         faceDepthSignature: FaceDepthSignature? = nil,
         enrollmentPhotos: [FacePose: Data] = [:]
@@ -69,6 +70,7 @@ final class EmployeeService {
             firstName: first,
             lastName: last,
             department: dept.isEmpty ? "General" : dept,
+            assignedSiteId: assignedSiteId,
             faceEmbeddings: embeddings,
             faceDepthSignature: faceDepthSignature,
             syncStatus: .pending
@@ -131,7 +133,8 @@ final class EmployeeService {
         employeeCode: String,
         firstName: String,
         lastName: String,
-        department: String
+        department: String,
+        assignedSiteId: UUID?
     ) throws {
         let code = employeeCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -154,6 +157,7 @@ final class EmployeeService {
         employee.firstName = first
         employee.lastName = last
         employee.department = dept.isEmpty ? "General" : dept
+        employee.assignedSiteId = assignedSiteId
         employee.updatedAt = Date()
         employee.syncStatus = .pending
         try repository.update(employee)

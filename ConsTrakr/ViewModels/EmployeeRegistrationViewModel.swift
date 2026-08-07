@@ -38,6 +38,7 @@ final class EmployeeRegistrationViewModel {
     var firstName = ""
     var lastName = ""
     var department = ""
+    var assignedSiteId: UUID?
 
     private(set) var step: RegistrationStep = .details
     private(set) var currentPose: FacePose = .center
@@ -114,6 +115,9 @@ final class EmployeeRegistrationViewModel {
 
     func configure(context: ModelContext) {
         employeeService = EmployeeService(context: context)
+        if assignedSiteId == nil {
+            assignedSiteId = JobSiteStore.defaultSiteId
+        }
     }
 
     func startCamera() async {
@@ -210,6 +214,7 @@ final class EmployeeRegistrationViewModel {
                 firstName: firstName,
                 lastName: lastName,
                 department: department.isEmpty ? "General" : department,
+                assignedSiteId: assignedSiteId,
                 embeddings: embeddings,
                 faceDepthSignature: capturedDepthSignature,
                 enrollmentPhotos: capturedPhotos
@@ -245,6 +250,7 @@ final class EmployeeRegistrationViewModel {
         firstName = ""
         lastName = ""
         department = ""
+        assignedSiteId = JobSiteStore.defaultSiteId
         capturedEmbeddings.removeAll()
         capturedPhotos.removeAll()
         capturedDepthSignature = nil

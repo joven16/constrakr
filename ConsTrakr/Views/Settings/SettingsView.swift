@@ -236,37 +236,35 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Require on-site GPS", isOn: $viewModel.siteGeofenceEnabled)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Site radius: \(Int(viewModel.siteRadiusMeters)) m")
-                    Slider(value: $viewModel.siteRadiusMeters, in: 50...500, step: 10)
-                }
-                Button {
-                    Task { await viewModel.useCurrentLocationAsSite() }
-                } label: {
-                    if viewModel.isCapturingSiteLocation {
-                        ProgressView()
-                    } else {
-                        Label("Use Current Location as Job Site", systemImage: "location.fill")
+                if viewModel.configuredJobSites.isEmpty {
+                    NavigationLink {
+                        JobSitesListView()
+                    } label: {
+                        Label("Add Job Sites", systemImage: "plus.circle")
                     }
-                }
-                .disabled(viewModel.isCapturingSiteLocation)
-                if SiteGeofenceSettings.hasSiteCoordinate {
-                    LabeledContent(
-                        "Site",
-                        value: String(
-                            format: "%.4f, %.4f",
-                            SiteGeofenceSettings.latitude,
-                            SiteGeofenceSettings.longitude
-                        )
-                    )
-                    Button("Clear Job Site", role: .destructive) {
-                        viewModel.clearSiteLocation()
+                } else {
+                    Picker("Default site", selection: Binding(
+                        get: { viewModel.effectiveDefaultSiteId },
+                        set: { viewModel.setDefaultJobSiteId($0) }
+                    )) {
+                        ForEach(viewModel.configuredJobSites) { site in
+                            Text(site.displayTitle).tag(Optional(site.id))
+                        }
+                    }
+                    NavigationLink {
+                        JobSitesListView()
+                    } label: {
+                        Label("Manage Job Sites", systemImage: "mappin.and.ellipse")
+                    }
+                    if let site = JobSiteStore.defaultSite {
+                        LabeledContent("Radius", value: "\(Int(site.radiusMeters.rounded())) m")
+                        LabeledContent("Coordinates", value: String(format: "%.4f, %.4f", site.latitude, site.longitude))
                     }
                 }
             } header: {
                 Text("Job site geofence")
             } footer: {
-                Text("Stand at the site and tap Use Current Location. Punches outside the radius are blocked.")
+                Text("The default site gates the scanner tab. Each employee’s assigned site is checked again when they punch Time In / Out.")
             }
 
             Section("About") {
@@ -298,6 +296,9 @@ struct SettingsView: View {
             )
         ) { _ in
             viewModel.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
+            viewModel.reloadJobSiteSettings()
         }
         .alert("API Connection Test", isPresented: $viewModel.showAPITestAlert) {
             Button("OK", role: .cancel) {}

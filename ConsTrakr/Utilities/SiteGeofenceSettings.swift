@@ -2,7 +2,7 @@
 //  SiteGeofenceSettings.swift
 //  ConsTrakr
 //
-// Optional job-site geofence — punches only allowed near the configured location.
+// Global on-site GPS toggle and legacy single-site keys (migrated into JobSiteStore).
 //
 
 import CoreLocation
@@ -14,27 +14,29 @@ enum SiteGeofenceSettings {
         set { UserDefaults.standard.set(newValue, forKey: AppConstants.UserDefaultsKeys.siteGeofenceEnabled) }
     }
 
-    static var latitude: Double {
-        get { UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.siteLatitude) }
-        set { UserDefaults.standard.set(newValue, forKey: AppConstants.UserDefaultsKeys.siteLatitude) }
+    // MARK: Legacy keys (read-only for migration)
+
+    static var legacyLatitude: Double {
+        UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.siteLatitude)
     }
 
-    static var longitude: Double {
-        get { UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.siteLongitude) }
-        set { UserDefaults.standard.set(newValue, forKey: AppConstants.UserDefaultsKeys.siteLongitude) }
+    static var legacyLongitude: Double {
+        UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.siteLongitude)
     }
 
-    /// Meters from site center allowed for a punch.
-    static var radiusMeters: Double {
-        get {
-            let stored = UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.siteRadiusMeters)
-            return stored > 0 ? stored : 150
-        }
-        set { UserDefaults.standard.set(newValue, forKey: AppConstants.UserDefaultsKeys.siteRadiusMeters) }
+    static var legacyRadiusMeters: Double {
+        let stored = UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.siteRadiusMeters)
+        return stored > 0 ? stored : 150
     }
+
+    static var legacyHasSiteCoordinate: Bool {
+        legacyLatitude != 0 || legacyLongitude != 0
+    }
+
+    // MARK: Default site (from JobSiteStore)
 
     static var hasSiteCoordinate: Bool {
-        latitude != 0 || longitude != 0
+        JobSiteStore.defaultSite?.hasCoordinate == true
     }
 
     static var isRequired: Bool {
@@ -42,20 +44,23 @@ enum SiteGeofenceSettings {
     }
 
     static var siteCoordinate: CLLocationCoordinate2D? {
-        guard hasSiteCoordinate else { return nil }
-        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        JobSiteStore.defaultSite?.coordinate
     }
 
-    static func setSite(coordinate: CLLocationCoordinate2D, radiusMeters: Double = 150) {
-        latitude = coordinate.latitude
-        longitude = coordinate.longitude
-        self.radiusMeters = max(50, radiusMeters)
-        isEnabled = true
+    static var radiusMeters: Double {
+        get { JobSiteStore.defaultSite?.radiusMeters ?? 150 }
+        set {
+            guard var site = JobSiteStore.defaultSite else { return }
+            site.radiusMeters = max(50, newValue)
+            JobSiteStore.upsert(site)
+        }
+    }
+
+    static var defaultSiteName: String {
+        JobSiteStore.defaultSite?.displayTitle ?? "Job site"
     }
 
     static func clearSite() {
-        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.siteLatitude)
-        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.siteLongitude)
         isEnabled = false
     }
 }

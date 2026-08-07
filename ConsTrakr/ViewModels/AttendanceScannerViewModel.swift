@@ -67,6 +67,9 @@ final class AttendanceScannerViewModel {
     var supervisorPINEntry = ""
     private(set) var supervisorPINError: String?
     private(set) var siteGateMessage: String?
+    /// When geofence is on, blocks the scanner UI until the phone is at the default job site.
+    private(set) var isScannerLocationBlocked = false
+    private(set) var scannerLocationMessage: String?
     /// Blocks alert-dismiss `cancelConfirm` from wiping an in-flight Time In/Out start.
     private var isStartingAuthorizedSession = false
 
@@ -185,6 +188,7 @@ final class AttendanceScannerViewModel {
     private var isHandlingFrame = false
     private var recordedKeysToday: Set<String> = []
     private let siteLocationGate = SiteLocationGate()
+    private var locationMonitorTask: Task<Void, Never>?
     /// Held while PIN / geofence gates run after Confirm.
     private var pendingSessionType: CheckType?
 
@@ -227,6 +231,11 @@ final class AttendanceScannerViewModel {
 
     func requestConfirm(_ type: CheckType) {
         guard !isProcessing else { return }
+        if isScannerLocationBlocked {
+            siteGateMessage = scannerLocationMessage
+                ?? "You must be at the job site to punch. Update location in Settings → Job Sites."
+            return
+        }
         pendingConfirmType = type
     }
 
@@ -294,6 +303,48 @@ final class AttendanceScannerViewModel {
 
     func dismissSiteGateMessage() {
         siteGateMessage = nil
+    }
+
+    func refreshScannerLocationGate() async {
+        guard SiteGeofenceSettings.isRequired, let site = JobSiteStore.defaultSite else {
+            isScannerLocationBlocked = false
+            scannerLocationMessage = nil
+            refreshScannerReadySteps()
+            return
+        }
+
+        let result = await siteLocationGate.isInside(site: site)
+        switch result {
+        case .success(let inside):
+            isScannerLocationBlocked = !inside
+            scannerLocationMessage = inside
+                ? nil
+                : "You are outside \(site.displayTitle). Move to the site or update location in Settings → Job Sites."
+        case .failure(let error):
+            isScannerLocationBlocked = true
+            scannerLocationMessage = error.localizedDescription
+        }
+        refreshScannerReadySteps()
+    }
+
+    private func startLocationMonitoring() {
+        locationMonitorTask?.cancel()
+        guard SiteGeofenceSettings.isRequired else {
+            isScannerLocationBlocked = false
+            scannerLocationMessage = nil
+            return
+        }
+        locationMonitorTask = Task { @MainActor in
+            while !Task.isCancelled {
+                await refreshScannerLocationGate()
+                try? await Task.sleep(for: .seconds(20))
+            }
+        }
+    }
+
+    private func stopLocationMonitoring() {
+        locationMonitorTask?.cancel()
+        locationMonitorTask = nil
     }
 
     private func startSessionAfterGuards() async {
@@ -409,12 +460,15 @@ final class AttendanceScannerViewModel {
             refreshScannerReadySteps()
             statusMessage = "Choose Time In or Time Out to begin."
             recognitionState = .idle
+            await refreshScannerLocationGate()
+            startLocationMonitoring()
         } catch {
             cameraError = error.localizedDescription
         }
     }
 
     func stopCamera() {
+        stopLocationMonitoring()
         cameraManager.onFrame = nil
         cameraManager.stop()
         endSession(status: "Scanner stopped")
@@ -859,6 +913,21 @@ final class AttendanceScannerViewModel {
             if recordedKeysToday.contains(key) {
                 await presentAlreadyRecorded(match: match, at: nil)
                 return
+            }
+
+            if SiteGeofenceSettings.isRequired {
+                let employee = try? employeeService?.employee(id: match.employeeId)
+                if let site = JobSiteStore.site(for: employee?.assignedSiteId) {
+                    do {
+                        try await siteLocationGate.verifyInside(site: site)
+                    } catch {
+                        siteGateMessage = error.localizedDescription
+                        errorMessage = error.localizedDescription
+                        endSession(status: error.localizedDescription)
+                        lastScanDate = Date()
+                        return
+                    }
+                }
             }
 
             let attendance = try attendanceService.record(

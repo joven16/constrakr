@@ -2,7 +2,7 @@
 //  SiteLocationGate.swift
 //  ConsTrakr
 //
-// One-shot location check against the configured job-site geofence.
+// One-shot location check against a job-site geofence.
 //
 
 import CoreLocation
@@ -14,20 +14,20 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
         case permissionDenied
         case locationUnavailable
         case timedOut
-        case outsideSite(distanceMeters: Double, radiusMeters: Double)
+        case outsideSite(siteName: String, distanceMeters: Double, radiusMeters: Double)
 
         var errorDescription: String? {
             switch self {
             case .permissionDenied:
-                return "Location access is required for on-site attendance. Enable it in Settings."
+                return "Location access is required for on-site attendance. Enable GPS in iPhone Settings → ConsTrakr → Location."
             case .locationUnavailable:
                 return "Could not read GPS. Move outdoors or wait for a signal, then try again."
             case .timedOut:
                 return "GPS timed out. Try again outdoors, or turn off site geofence in Settings."
-            case .outsideSite(let distance, let radius):
+            case .outsideSite(let siteName, let distance, let radius):
                 let d = Int(distance.rounded())
                 let r = Int(radius.rounded())
-                return "Outside job site (\(d)m away; allowed \(r)m). Buddy punches off-site are blocked."
+                return "Outside \(siteName) (\(d)m away; allowed \(r)m). Move to the site or update location in Settings → Job Sites."
             }
         }
     }
@@ -44,13 +44,17 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
     /// No-op when geofence is disabled; throws when outside / unavailable / timed out.
     func verifyInsideSiteIfRequired() async throws {
         guard SiteGeofenceSettings.isRequired,
-              let site = SiteGeofenceSettings.siteCoordinate
+              let site = JobSiteStore.defaultSite
         else { return }
+        try await verifyInside(site: site)
+    }
+
+    func verifyInside(site: JobSite) async throws {
+        guard site.hasCoordinate else { return }
 
         let status = manager.authorizationStatus
         if status == .notDetermined {
             manager.requestWhenInUseAuthorization()
-            // Wait for the user to answer the system prompt.
             for _ in 0..<20 {
                 try await Task.sleep(for: .milliseconds(250))
                 let auth = manager.authorizationStatus
@@ -66,9 +70,29 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
         let location = try await requestLocation(timeoutSeconds: 8)
         let siteLocation = CLLocation(latitude: site.latitude, longitude: site.longitude)
         let distance = location.distance(from: siteLocation)
-        let radius = SiteGeofenceSettings.radiusMeters
-        if distance > radius {
-            throw GateError.outsideSite(distanceMeters: distance, radiusMeters: radius)
+        if distance > site.radiusMeters {
+            throw GateError.outsideSite(
+                siteName: site.displayTitle,
+                distanceMeters: distance,
+                radiusMeters: site.radiusMeters
+            )
+        }
+    }
+
+    /// Returns whether the device is inside the site, without throwing for outside range.
+    func isInside(site: JobSite) async -> Result<Bool, GateError> {
+        do {
+            try await verifyInside(site: site)
+            return .success(true)
+        } catch let error as GateError {
+            switch error {
+            case .outsideSite:
+                return .success(false)
+            default:
+                return .failure(error)
+            }
+        } catch {
+            return .failure(.locationUnavailable)
         }
     }
 
@@ -89,7 +113,6 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
 
     private func requestLocationOnce() async throws -> CLLocation {
         try await withCheckedThrowingContinuation { continuation in
-            // Cancel any prior waiter so we never double-resume.
             if let prior = self.continuation {
                 prior.resume(throwing: GateError.locationUnavailable)
                 self.continuation = nil
@@ -114,7 +137,5 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        // Authorization wait loop in verifyInsideSiteIfRequired polls status.
-    }
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {}
 }

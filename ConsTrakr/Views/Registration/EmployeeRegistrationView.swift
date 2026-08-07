@@ -75,10 +75,12 @@ struct EmployeeRegistrationView: View {
 
                 TextField("Department", text: $viewModel.department)
                     .textContentType(.organizationName)
+
+                JobSitePickerField(selectedSiteId: $viewModel.assignedSiteId)
             } header: {
                 Text("Employee Information")
             } footer: {
-                Text("Enter the employee profile, then continue to face enrollment. Face data is stored encrypted on this device.")
+                Text("Assign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.")
             }
 
             Section {

@@ -19,6 +19,8 @@ final class Employee {
     var firstName: String
     var lastName: String
     var department: String
+    /// Job site this employee must be at for Time In / Time Out (falls back to app default site).
+    var assignedSiteId: UUID?
     /// Encrypted JSON blob of `[FaceEmbedding]` for fast local matching after decrypt.
     var faceEmbeddingsData: Data
     /// Encrypted TrueDepth face geometry from enrollment (empty if not scanned / no TrueDepth).
@@ -34,6 +36,7 @@ final class Employee {
         firstName: String,
         lastName: String,
         department: String,
+        assignedSiteId: UUID? = nil,
         faceEmbeddings: [FaceEmbedding] = [],
         faceDepthSignature: FaceDepthSignature? = nil,
         syncStatus: SyncStatus = .pending,
@@ -46,6 +49,7 @@ final class Employee {
         self.firstName = firstName
         self.lastName = lastName
         self.department = department
+        self.assignedSiteId = assignedSiteId
         // CHANGE: encrypt before persisting (offline-first security requirement).
         self.faceEmbeddingsData = (try? EmbeddingCrypto.encryptEmbeddings(faceEmbeddings)) ?? Data()
         if let faceDepthSignature {

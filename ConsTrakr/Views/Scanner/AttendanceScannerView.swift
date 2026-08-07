@@ -107,6 +107,9 @@ struct AttendanceScannerView: View {
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceHistoryDidClear)) { _ in
                 viewModel.handleAttendanceHistoryCleared()
             }
+            .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
+                Task { await viewModel.refreshScannerLocationGate() }
+            }
             .onReceive(NotificationCenter.default.publisher(for: FaceScanSettings.settingsDidChangeNotification)) { _ in
                 viewModel.refreshScannerReadySteps()
             }
@@ -127,6 +130,8 @@ struct AttendanceScannerView: View {
 
             if let cameraError = viewModel.cameraError {
                 cameraErrorOverlay(cameraError)
+            } else if viewModel.isScannerLocationBlocked && !viewModel.isSessionActive {
+                locationBlockedOverlay
             } else {
                 FaceGuideOverlay(
                     isConditionMet: viewModel.guideConditionMet || viewModel.successFlash,
@@ -366,7 +371,7 @@ struct AttendanceScannerView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(.green)
-                .disabled(viewModel.isSessionActive || viewModel.isProcessing)
+                .disabled(viewModel.isSessionActive || viewModel.isProcessing || viewModel.isScannerLocationBlocked)
 
                 Button {
                     viewModel.requestConfirm(.checkOut)
@@ -379,7 +384,16 @@ struct AttendanceScannerView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(.orange)
-                .disabled(viewModel.isSessionActive || viewModel.isProcessing)
+                .disabled(viewModel.isSessionActive || viewModel.isProcessing || viewModel.isScannerLocationBlocked)
+            }
+
+            if viewModel.isScannerLocationBlocked && !viewModel.isSessionActive {
+                Button {
+                    Task { await viewModel.refreshScannerLocationGate() }
+                } label: {
+                    Label("Recheck Location", systemImage: "location.fill")
+                }
+                .buttonStyle(.bordered)
             }
 
             if viewModel.isSessionActive {
@@ -417,6 +431,23 @@ struct AttendanceScannerView: View {
     private func lockCameraSizeIfNeeded(width: CGFloat, height: CGFloat) {
         guard width > 0, height > 0, lockedCameraSize == nil else { return }
         lockedCameraSize = CGSize(width: width, height: height)
+    }
+
+    private var locationBlockedOverlay: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "location.slash.fill")
+                .font(.system(size: 44))
+            Text("Off Site")
+                .font(.title3.weight(.semibold))
+            Text(viewModel.scannerLocationMessage ?? "Move to the job site or update location in Settings → Job Sites.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.black.opacity(0.82))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func cameraErrorOverlay(_ message: String) -> some View {
