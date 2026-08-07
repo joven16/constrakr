@@ -56,6 +56,18 @@ final class EmployeeIdDocumentRepository {
         try fetchPendingSync().count
     }
 
+    /// Re-queue when JPEG exists locally but IMS has no ID document yet.
+    func requeueForMissingRemoteUpload(employeeLocalId: UUID, remoteHasJPEG: Bool) throws -> Int {
+        guard !remoteHasJPEG else { return 0 }
+        guard IdDocumentPhotoStore.load(employeeId: employeeLocalId) != nil else { return 0 }
+        guard let entity = try fetch(forEmployeeLocalId: employeeLocalId) else { return 0 }
+        guard entity.syncStatus == .synced else { return 0 }
+        entity.syncStatus = .pending
+        entity.updatedAt = Date()
+        try context.save()
+        return 1
+    }
+
     func save(_ entity: EmployeeIdDocumentEntity) throws {
         context.insert(entity)
         try context.save()

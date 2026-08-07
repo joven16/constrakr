@@ -65,8 +65,7 @@ struct AttendanceScannerView: View {
                 )
                 .ignoresSafeArea()
             )
-            .navigationTitle("Scanner")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .alert(
                 viewModel.pendingConfirmType?.confirmPrompt ?? "Confirm",
                 isPresented: Binding(

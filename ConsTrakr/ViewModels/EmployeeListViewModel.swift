@@ -108,7 +108,7 @@ final class EmployeeListViewModel {
 
     /// Refresh IMS badges when signed in — avoids stale "Not checked" on every row.
     func checkCloudIfNeeded() async {
-        guard cloudReport == nil || cloudReport?.statusNote != nil else { return }
+        guard cloudReport == nil else { return }
         guard !isCheckingCloud else { return }
         await checkCloudOnly()
     }

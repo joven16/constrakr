@@ -947,10 +947,10 @@ final class AttendanceScannerViewModel {
             syncQueue?.refreshPendingCount()
 
             if NetworkMonitor.shared.isConnected {
-                await syncQueue?.syncNow()
+                Task { await syncQueue?.syncNow() }
             }
 
-            try? await Task.sleep(for: .seconds(2.5))
+            try? await Task.sleep(for: .seconds(AppConstants.scannerResultDismissDelay))
             successFlash = false
             endSession(status: "Choose Time In or Time Out to begin.")
             lastScanDate = Date()
@@ -1034,7 +1034,7 @@ final class AttendanceScannerViewModel {
             : "\(match.employeeName) already timed out · \(when)"
         statusMessage = message
 
-        try? await Task.sleep(for: .seconds(2.5))
+        try? await Task.sleep(for: .seconds(AppConstants.scannerResultDismissDelay))
         endSession(status: "Choose Time In or Time Out to begin.")
         lastScanDate = Date()
     }

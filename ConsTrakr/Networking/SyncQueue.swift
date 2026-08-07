@@ -142,21 +142,16 @@ final class SyncQueue {
             refreshPendingCount()
         }
 
-        // 1. Check IMS employee status + dates (repair stale local ids).
-        lastEmployeeSyncReport = try? await EmployeeSyncChecker.check(context: context, repair: true)
-
         do {
-            // 2. Auto-sync uploads (employees not on IMS, then embeddings / DTR for those on IMS).
             let summary = try await syncService.performPushSync(context: context)
             lastPushSummary = summary
+            lastEmployeeSyncReport = summary.employeeSyncReport
             lastSyncDate = Date()
             if summary.employeesStillLocalOnly > 0 || summary.hasChildUploadIssues || summary.employeesUploadFailed > 0 {
                 lastError = summary.failureMessage
             } else {
                 lastError = nil
             }
-            // 3. Refresh IMS status + dates after sync.
-            lastEmployeeSyncReport = try? await EmployeeSyncChecker.check(context: context, repair: false)
             BackgroundSyncScheduler.scheduleNextSync()
         } catch NetworkError.unauthorized {
             AdminSession.shared.handleUnauthorized()

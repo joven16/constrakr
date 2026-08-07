@@ -91,7 +91,12 @@ struct EmployeeSyncReport {
 enum EmployeeSyncChecker {
     /// Pulls IMS roster and marks each local employee as on IMS or needs upload.
     /// When `repair` is true, links missing server ids and clears phantom local ids.
-    static func check(context: ModelContext, repair: Bool = false) async throws -> EmployeeSyncReport {
+    /// Pass `preloadedParsed` to reuse a roster already fetched during sync (avoids duplicate GET).
+    static func check(
+        context: ModelContext,
+        repair: Bool = false,
+        preloadedParsed: APIDecoding.EmployeeListDecodeResult? = nil
+    ) async throws -> EmployeeSyncReport {
         let checkedAt = Date()
         let repo = EmployeeRepository(context: context)
         let local = try repo.fetchAll()
@@ -141,9 +146,14 @@ enum EmployeeSyncChecker {
             )
         }
 
-        await APIService.shared.warmConnection()
-        let listData = try await APIService.shared.fetchEmployeesData()
-        let parsed = APIDecoding.decodeEmployees(from: listData)
+        let parsed: APIDecoding.EmployeeListDecodeResult
+        if let preloadedParsed {
+            parsed = preloadedParsed
+        } else {
+            await APIService.shared.warmConnection()
+            let listData = try await APIService.shared.fetchEmployeesData()
+            parsed = APIDecoding.decodeEmployees(from: listData)
+        }
         var index = RemoteEmployeeIndex(remote: parsed.employees)
 
         var confirmed = 0

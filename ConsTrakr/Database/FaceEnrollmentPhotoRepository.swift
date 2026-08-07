@@ -58,13 +58,17 @@ final class FaceEnrollmentPhotoRepository {
     }
 
     /// Re-queue poses that have JPEG on device but are marked synced locally while IMS has no image.
-    func requeueForMissingRemoteUpload(existingRemotePosesWithJPEG: Set<String>) throws -> Int {
+    func requeueForMissingRemoteUpload(
+        employeeLocalId: UUID,
+        existingRemotePosesWithJPEG: Set<String>
+    ) throws -> Int {
         let synced = SyncStatus.synced.rawValue
         let descriptor = FetchDescriptor<FaceEnrollmentPhotoEntity>(
             predicate: #Predicate { $0.syncStatusRaw == synced }
         )
         var reset = 0
         for entity in try context.fetch(descriptor) {
+            guard entity.employeeLocalId == employeeLocalId else { continue }
             guard existingRemotePosesWithJPEG.contains(entity.poseRaw) == false else { continue }
             guard EnrollmentPhotoStore.load(employeeId: entity.employeeLocalId, pose: entity.pose) != nil else {
                 continue

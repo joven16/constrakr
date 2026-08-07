@@ -27,6 +27,8 @@ enum AppConstants {
     static let poseHoldDuration: TimeInterval = 0.6
     static let scannerCooldown: TimeInterval = 3.0
     static let unknownPersonAutoCancelDelay: TimeInterval = 3.0
+    /// Brief success / already-recorded message before returning to Ready.
+    static let scannerResultDismissDelay: TimeInterval = 2.0
     static let scannerWarmupFrames: Int = 3
     static let scannerConsensusFrames: Int = 2
     static let registrationResetDelay: TimeInterval = 2.5
