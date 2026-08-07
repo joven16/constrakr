@@ -268,7 +268,7 @@ enum JobSiteStore {
 
     static func remapSiteId(from oldId: UUID, to newId: UUID) {
         guard oldId != newId else { return }
-        var sites = allSites.filter { $0.id != oldId }
+        let sites = allSites.filter { $0.id != oldId }
         persist(sites)
         if defaultSiteId == oldId {
             defaultSiteId = newId

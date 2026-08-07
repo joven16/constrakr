@@ -274,7 +274,7 @@ final class SyncService {
                 continue
             }
 
-            if let remote = remoteIndex.match(for: employee),
+            if remoteIndex.match(for: employee) != nil,
                let serverId = remoteIndex.resolvedServerId(for: employee) {
                 try linkEmployeeToServer(
                     employee,
@@ -307,7 +307,7 @@ final class SyncService {
             } catch let error as NetworkError {
                 if case .serverError(409, _) = error {
                     let refreshed = try await remoteEmployeeIndex(forceRefresh: true)
-                    if let remote = refreshed.match(for: employee),
+                    if refreshed.match(for: employee) != nil,
                        let serverId = refreshed.resolvedServerId(for: employee) {
                         try linkEmployeeToServer(
                             employee,
@@ -613,6 +613,7 @@ final class SyncService {
                 employeeLocalId: entity.employeeLocalId,
                 idType: entity.idTypeRaw,
                 idNumber: entity.idNumber.isEmpty ? nil : entity.idNumber,
+                capturedAt: entity.capturedAt,
                 jpegBase64: jpeg.base64EncodedString()
             )
             do {
@@ -912,6 +913,7 @@ final class SyncService {
             if let employee = try empRepo.fetch(id: localEmployeeId) {
                 employee.idDocumentType = IdDocumentType(rawValue: dto.idType)
                 employee.idDocumentNumber = dto.idNumber ?? ""
+                employee.idDocumentCapturedAt = dto.capturedAt
                 try empRepo.update(employee, persist: false)
             }
         }
@@ -1016,6 +1018,7 @@ final class SyncService {
             if let employee = try empRepo.fetch(id: localEmployeeId) {
                 employee.idDocumentType = IdDocumentType(rawValue: dto.idType)
                 employee.idDocumentNumber = dto.idNumber ?? ""
+                employee.idDocumentCapturedAt = dto.capturedAt
                 try empRepo.update(employee, persist: false)
             }
         }

@@ -564,6 +564,7 @@ struct EmployeeIdDocumentDTO: Codable {
     let employeeLocalId: UUID
     let idType: String
     let idNumber: String?
+    let capturedAt: Date?
     let jpegBase64: String?
     let hasJpegData: Bool?
 
@@ -572,6 +573,7 @@ struct EmployeeIdDocumentDTO: Codable {
         case employeeLocalId = "employee_local_id"
         case idType = "id_type"
         case idNumber = "id_number"
+        case capturedAt = "captured_at"
         case jpegBase64 = "jpeg_base64"
         case hasJpegData = "has_jpeg_data"
     }
@@ -581,12 +583,14 @@ struct EmployeeIdDocumentDTO: Codable {
         employeeLocalId: UUID,
         idType: String,
         idNumber: String?,
+        capturedAt: Date?,
         jpegBase64: String?
     ) {
         self.employeeServerId = employeeServerId
         self.employeeLocalId = employeeLocalId
         self.idType = idType
         self.idNumber = idNumber
+        self.capturedAt = capturedAt
         self.jpegBase64 = jpegBase64
         self.hasJpegData = jpegBase64 != nil
     }
@@ -597,6 +601,7 @@ struct EmployeeIdDocumentDTO: Codable {
         employeeLocalId = try container.decode(UUID.self, forKey: .employeeLocalId)
         idType = try container.decode(String.self, forKey: .idType)
         idNumber = try container.decodeIfPresent(String.self, forKey: .idNumber)
+        capturedAt = try container.decodeIfPresent(Date.self, forKey: .capturedAt)
         jpegBase64 = try container.decodeIfPresent(String.self, forKey: .jpegBase64)
         hasJpegData = try container.decodeIfPresent(Bool.self, forKey: .hasJpegData)
     }
@@ -607,6 +612,7 @@ struct EmployeeIdDocumentDTO: Codable {
         try container.encode(employeeLocalId, forKey: .employeeLocalId)
         try container.encode(idType, forKey: .idType)
         try container.encodeIfPresent(idNumber, forKey: .idNumber)
+        try container.encodeIfPresent(capturedAt, forKey: .capturedAt)
         try container.encodeIfPresent(jpegBase64, forKey: .jpegBase64)
     }
 }

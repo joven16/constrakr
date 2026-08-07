@@ -22,7 +22,7 @@ struct AppRootView: View {
             .onAppear {
                 let context = modelContainer.mainContext
                 DataController.seedMockDataIfNeeded(context: context)
-                try? EmployeeRepository(context: context).repairStaleSyncState()
+                _ = try? EmployeeRepository(context: context).repairStaleSyncState()
                 syncQueue.configure(context: context)
                 BackgroundSyncScheduler.register(syncQueue: syncQueue)
                 Task { await AdminSession.shared.restorePersistedSession() }

@@ -115,10 +115,10 @@ final class CoreMLAntiSpoof: @unchecked Sendable {
         let height = CVPixelBufferGetHeight(pixelBuffer)
         let pixelRect = visionBoxToPixelRect(boundingBox, width: width, height: height)
 
-        var x = pixelRect.minX
-        var y = pixelRect.minY
-        var boxW = pixelRect.width
-        var boxH = pixelRect.height
+        let x = pixelRect.minX
+        let y = pixelRect.minY
+        let boxW = pixelRect.width
+        let boxH = pixelRect.height
         let scaleFactor = min(
             (CGFloat(height) - 1) / max(boxH, 1),
             (CGFloat(width) - 1) / max(boxW, 1),

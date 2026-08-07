@@ -310,3 +310,31 @@ enum APIDecoding {
         }
     }
 }
+
+extension JSONEncoder {
+    static let api: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        return encoder
+    }()
+}
+
+extension JSONDecoder {
+    static let api: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let string = try container.decode(String.self)
+            if let parsed = APIDecoding.parseISO8601(string) {
+                return parsed
+            }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid ISO8601 date: \(string)"
+            )
+        }
+        decoder.keyDecodingStrategy = .useDefaultKeys
+        return decoder
+    }()
+}

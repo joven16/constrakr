@@ -47,7 +47,7 @@ final class SyncQueue {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.refreshPendingCount()
                 }
             }
@@ -59,7 +59,7 @@ final class SyncQueue {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.handleNetworkConnectivityChange()
                 }
             }

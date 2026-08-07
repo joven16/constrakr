@@ -46,6 +46,7 @@ final class EmployeeRegistrationViewModel {
     var selectedIdType: IdDocumentType = .philsysNationalId
     var idDocumentNumber = ""
     private(set) var idDocumentImage: UIImage?
+    private(set) var idDocumentCapturedAt: Date?
     var showDocumentScanner = false
 
     private(set) var step: RegistrationStep = .details
@@ -63,7 +64,12 @@ final class EmployeeRegistrationViewModel {
     private(set) var scanPhase: EnrollScanPhase = .blink
     private(set) var depthScanProgress: Double = 0
     var errorMessage: String?
+    private(set) var duplicateFaceMatch: FaceMatchResult?
     private(set) var cameraError: String?
+
+    var showDuplicateFaceAlert: Bool {
+        duplicateFaceMatch != nil
+    }
 
     /// Stable line on the camera overlay — changes only when the phase changes.
     private(set) var primaryInstruction = "Blink both eyes slowly"
@@ -167,6 +173,7 @@ final class EmployeeRegistrationViewModel {
         guard !didSave else { return }
         idDocumentImage = nil
         idDocumentNumber = ""
+        idDocumentCapturedAt = nil
         step = .faceScan
         startEnrollment()
         if !cameraManager.isRunning {
@@ -195,11 +202,18 @@ final class EmployeeRegistrationViewModel {
 
     func handleIdDocumentCapture(_ image: UIImage) {
         idDocumentImage = image
+        idDocumentCapturedAt = Date()
         showDocumentScanner = false
+    }
+
+    func rotateIdDocument(clockwise: Bool) {
+        guard let image = idDocumentImage else { return }
+        idDocumentImage = image.rotatedQuarterTurn(clockwise: clockwise)
     }
 
     func retakeIdDocument() {
         idDocumentImage = nil
+        idDocumentCapturedAt = nil
         showDocumentScanner = true
     }
 
@@ -278,6 +292,7 @@ final class EmployeeRegistrationViewModel {
                 enrollmentPhotos: capturedPhotos,
                 idDocumentType: idDocumentImage != nil ? selectedIdType : nil,
                 idDocumentNumber: idDocumentNumber,
+                idDocumentCapturedAt: idDocumentCapturedAt,
                 idDocumentImage: idDocumentImage
             )
             didSave = true
@@ -286,10 +301,31 @@ final class EmployeeRegistrationViewModel {
             setInstruction("Registration complete")
             stopCamera()
             NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
+        } catch let error as EmployeeService.ServiceError {
+            switch error {
+            case .duplicateFace(let name, let code):
+                presentDuplicateFace(
+                    FaceMatchResult(
+                        employeeId: UUID(),
+                        employeeCode: code,
+                        employeeName: name,
+                        similarity: 0,
+                        matchedPose: .center
+                    )
+                )
+            default:
+                errorMessage = error.localizedDescription
+                step = .faceScan
+            }
         } catch {
             errorMessage = error.localizedDescription
             step = .faceScan
         }
+    }
+
+    func dismissDuplicateFaceAlert() {
+        duplicateFaceMatch = nil
+        resetForNextEmployee()
     }
 
     func acknowledgeSuccessAndReset() {
@@ -315,6 +351,7 @@ final class EmployeeRegistrationViewModel {
         selectedIdType = .philsysNationalId
         idDocumentNumber = ""
         idDocumentImage = nil
+        idDocumentCapturedAt = nil
         showDocumentScanner = false
         capturedEmbeddings.removeAll()
         capturedPhotos.removeAll()
@@ -328,6 +365,7 @@ final class EmployeeRegistrationViewModel {
         didSave = false
         successMessage = nil
         errorMessage = nil
+        duplicateFaceMatch = nil
         faceDetected = false
         poseMatched = false
         scanPhase = .blink
@@ -484,7 +522,7 @@ final class EmployeeRegistrationViewModel {
         )
 
         if let duplicate = try employeeService?.matchingEnrolledFace(probes: [embedding]) {
-            rejectDuplicateFace(duplicate)
+            presentDuplicateFace(duplicate)
             return
         }
 
@@ -509,8 +547,21 @@ final class EmployeeRegistrationViewModel {
         }
     }
 
-    private func rejectDuplicateFace(_ match: FaceMatchResult) {
-        errorMessage = "This face already belongs to \(match.employeeName) (\(match.employeeCode))."
-        resetForNextEmployee()
+    private func presentDuplicateFace(_ match: FaceMatchResult) {
+        stopCamera()
+        isEnrolling = false
+        capturedEmbeddings.removeAll()
+        capturedPhotos.removeAll()
+        capturedDepthSignature = nil
+        depthScanAccumulator.reset()
+        depthScanProgress = 0
+        currentPose = .center
+        poseHoldStart = nil
+        scanPhase = .blink
+        guideConditionMet = false
+        faceDetected = false
+        poseMatched = false
+        setInstruction("Face already registered")
+        duplicateFaceMatch = match
     }
 }

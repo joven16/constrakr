@@ -15,6 +15,7 @@ final class EmployeeIdDocumentEntity {
     var employeeServerId: String?
     var idTypeRaw: String
     var idNumber: String
+    var capturedAt: Date?
     var syncStatusRaw: String
     var createdAt: Date
     var updatedAt: Date
@@ -25,6 +26,7 @@ final class EmployeeIdDocumentEntity {
         employeeServerId: String? = nil,
         idType: IdDocumentType,
         idNumber: String = "",
+        capturedAt: Date? = nil,
         syncStatus: SyncStatus = .pending,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -34,6 +36,7 @@ final class EmployeeIdDocumentEntity {
         self.employeeServerId = employeeServerId
         self.idTypeRaw = idType.rawValue
         self.idNumber = idNumber
+        self.capturedAt = capturedAt
         self.syncStatusRaw = syncStatus.rawValue
         self.createdAt = createdAt
         self.updatedAt = updatedAt

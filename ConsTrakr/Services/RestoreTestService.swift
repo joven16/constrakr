@@ -24,7 +24,7 @@ struct RestoreTestResult {
     let restored: SyncService.RestoreSummary
 
     var report: String {
-        var lines: [String] = [
+        let lines: [String] = [
             "Local data cleared:",
             "  \(wiped.summaryLine)",
             "",
@@ -37,6 +37,7 @@ struct RestoreTestResult {
     }
 }
 
+@MainActor
 enum RestoreTestService {
     static func snapshot(context: ModelContext) throws -> LocalDataSnapshot {
         LocalDataSnapshot(

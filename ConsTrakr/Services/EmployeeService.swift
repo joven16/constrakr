@@ -42,6 +42,7 @@ final class EmployeeService {
         enrollmentPhotos: [FacePose: Data] = [:],
         idDocumentType: IdDocumentType? = nil,
         idDocumentNumber: String = "",
+        idDocumentCapturedAt: Date? = nil,
         idDocumentImage: UIImage? = nil
     ) throws -> Employee {
         let code = employeeCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -79,6 +80,7 @@ final class EmployeeService {
             faceDepthSignature: faceDepthSignature,
             idDocumentType: idDocumentType,
             idDocumentNumber: idDocumentNumber.trimmingCharacters(in: .whitespacesAndNewlines),
+            idDocumentCapturedAt: idDocumentCapturedAt,
             syncStatus: .pending
         )
         let siteFields = JobSiteStore.syncFields(for: assignedSiteId)
@@ -127,7 +129,8 @@ final class EmployeeService {
             try idDocRepo.ensureEntityForEmployee(
                 employee,
                 idType: idDocumentType,
-                idNumber: idDocumentNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+                idNumber: idDocumentNumber.trimmingCharacters(in: .whitespacesAndNewlines),
+                capturedAt: idDocumentCapturedAt
             )
         }
 

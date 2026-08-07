@@ -76,7 +76,7 @@ enum APITestRunner {
                 healthCode = code == 0 ? nil : code
                 healthMsg = message ?? "HTTP \(code)"
             default:
-                healthMsg = error.localizedDescription ?? "Health check failed"
+                healthMsg = error.localizedDescription
             }
         } catch {
             healthMsg = error.localizedDescription
@@ -109,7 +109,7 @@ enum APITestRunner {
                     loginCode = code == 0 ? nil : code
                     loginMsg = message ?? "HTTP \(code)"
                 default:
-                    loginMsg = error.localizedDescription ?? "Session check failed"
+                    loginMsg = error.localizedDescription
                 }
             } catch {
                 loginMsg = error.localizedDescription
@@ -131,7 +131,7 @@ enum APITestRunner {
                     loginCode = code == 0 ? nil : code
                     loginMsg = message ?? "HTTP \(code)"
                 default:
-                    loginMsg = error.localizedDescription ?? "Login failed"
+                    loginMsg = error.localizedDescription
                 }
             } catch {
                 loginMsg = error.localizedDescription

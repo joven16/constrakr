@@ -340,6 +340,9 @@ struct EmployeeDetailView: View {
                     if !employee.idDocumentNumber.isEmpty {
                         LabeledContent("Number", value: employee.idDocumentNumber)
                     }
+                    if let capturedAt = employee.idDocumentCapturedAt {
+                        LabeledContent("Captured", value: capturedAt.formatted(date: .abbreviated, time: .shortened))
+                    }
                     if let data = IdDocumentPhotoStore.load(employeeId: employee.id),
                        let image = UIImage(data: data) {
                         Image(uiImage: image)

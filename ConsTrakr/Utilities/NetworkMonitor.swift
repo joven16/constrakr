@@ -20,11 +20,12 @@ final class NetworkMonitor {
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 let connected = path.status == .satisfied
-                let changed = self?.isConnected != connected
-                self?.isConnected = connected
-                self?.connectionType = path.availableInterfaces.first?.type
+                let changed = isConnected != connected
+                isConnected = connected
+                connectionType = path.availableInterfaces.first?.type
                 if changed {
                     NotificationCenter.default.post(
                         name: AppConstants.Notifications.networkConnectivityDidChange,

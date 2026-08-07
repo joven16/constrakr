@@ -78,11 +78,13 @@ final class EmployeeIdDocumentRepository {
     func ensureEntityForEmployee(
         _ employee: Employee,
         idType: IdDocumentType,
-        idNumber: String
+        idNumber: String,
+        capturedAt: Date?
     ) throws {
         if let existing = try fetch(forEmployeeLocalId: employee.id) {
             existing.idType = idType
             existing.idNumber = idNumber
+            existing.capturedAt = capturedAt
             existing.employeeServerId = employee.serverId
             if existing.syncStatus == .synced {
                 existing.syncStatus = .pending
@@ -96,6 +98,7 @@ final class EmployeeIdDocumentRepository {
             employeeServerId: employee.serverId,
             idType: idType,
             idNumber: idNumber,
+            capturedAt: capturedAt,
             syncStatus: .pending
         )
         try save(entity)
@@ -106,6 +109,7 @@ final class EmployeeIdDocumentRepository {
         if let existing = try fetch(forEmployeeLocalId: employeeLocalId) {
             existing.idType = idType
             existing.idNumber = dto.idNumber ?? ""
+            existing.capturedAt = dto.capturedAt
             existing.employeeServerId = dto.employeeServerId
             existing.syncStatus = .synced
             existing.updatedAt = Date()
@@ -115,6 +119,7 @@ final class EmployeeIdDocumentRepository {
                 employeeServerId: dto.employeeServerId,
                 idType: idType,
                 idNumber: dto.idNumber ?? "",
+                capturedAt: dto.capturedAt,
                 syncStatus: .synced
             )
             context.insert(entity)

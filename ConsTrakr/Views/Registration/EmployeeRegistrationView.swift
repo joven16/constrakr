@@ -37,6 +37,21 @@ struct EmployeeRegistrationView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        .alert("Face Already Registered", isPresented: Binding(
+            get: { viewModel.showDuplicateFaceAlert },
+            set: { if !$0 { viewModel.dismissDuplicateFaceAlert() } }
+        )) {
+            Button("OK", role: .cancel) {
+                viewModel.dismissDuplicateFaceAlert()
+            }
+        } message: {
+            if let match = viewModel.duplicateFaceMatch {
+                Text(
+                    "This face matches \(match.employeeName) (\(match.employeeCode)). "
+                    + "Each person can only be enrolled once."
+                )
+            }
+        }
         .alert("Registration Complete", isPresented: $showRegistrationSuccessAlert) {
             Button("OK") {
                 tabRouter.selectedTab = .employees
@@ -128,23 +143,46 @@ struct EmployeeRegistrationView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
 
-                    Button("Retake scan") {
+                    HStack(spacing: 16) {
+                        Button {
+                            viewModel.rotateIdDocument(clockwise: false)
+                        } label: {
+                            Label("Rotate left", systemImage: "rotate.left")
+                        }
+
+                        Button {
+                            viewModel.rotateIdDocument(clockwise: true)
+                        } label: {
+                            Label("Rotate right", systemImage: "rotate.right")
+                        }
+                    }
+
+                    if let capturedAt = viewModel.idDocumentCapturedAt {
+                        LabeledContent("Captured") {
+                            Text(capturedAt.formatted(date: .abbreviated, time: .shortened))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Button("Retake photo") {
                         viewModel.retakeIdDocument()
                     }
                 } else {
                     Button {
                         viewModel.showDocumentScanner = true
                     } label: {
-                        Label("Scan ID", systemImage: "doc.text.viewfinder")
+                        Label("Take ID photo", systemImage: "camera.fill")
                     }
                 }
             } header: {
                 Text("ID photo")
+            } footer: {
+                Text("Use the rear camera and tap Capture when ready. You can rotate the photo after.")
             }
         }
         .scrollContentBackground(.hidden)
         .fullScreenCover(isPresented: $viewModel.showDocumentScanner) {
-            DocumentCameraView(
+            IdDocumentCameraView(
                 onCapture: { viewModel.handleIdDocumentCapture($0) },
                 onCancel: { viewModel.showDocumentScanner = false }
             )

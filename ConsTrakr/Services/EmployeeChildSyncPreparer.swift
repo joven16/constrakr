@@ -48,7 +48,8 @@ enum EmployeeChildSyncPreparer {
             try idDocRepo.ensureEntityForEmployee(
                 employee,
                 idType: idType,
-                idNumber: employee.idDocumentNumber
+                idNumber: employee.idDocumentNumber,
+                capturedAt: employee.idDocumentCapturedAt
             )
         }
 

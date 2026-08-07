@@ -33,6 +33,8 @@ final class Employee {
     var idDocumentTypeRaw: String = ""
     /// Optional ID number entered or typed during registration.
     var idDocumentNumber: String = ""
+    /// When the ID photo was captured on this device.
+    var idDocumentCapturedAt: Date?
     var createdAt: Date
     var updatedAt: Date
 
@@ -50,6 +52,7 @@ final class Employee {
         faceDepthSignature: FaceDepthSignature? = nil,
         idDocumentType: IdDocumentType? = nil,
         idDocumentNumber: String = "",
+        idDocumentCapturedAt: Date? = nil,
         syncStatus: SyncStatus = .pending,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -74,6 +77,7 @@ final class Employee {
         self.syncStatusRaw = syncStatus.rawValue
         self.idDocumentTypeRaw = idDocumentType?.rawValue ?? ""
         self.idDocumentNumber = idDocumentNumber
+        self.idDocumentCapturedAt = idDocumentCapturedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
