@@ -134,19 +134,19 @@ final class EmployeeRepository {
     /// Restore helper: merge remote employee without duplicating by serverId or employeeCode.
     @discardableResult
     func upsertFromRemote(_ dto: EmployeeDTO) throws -> Employee {
-        JobSiteStore.ensureFromEmployeeAssignment(
-            id: dto.assignedSiteId,
-            name: dto.assignedSiteName,
-            location: dto.assignedSiteLocation
-        )
         if let serverId = dto.serverId, let existing = try fetch(serverId: serverId) {
             existing.firstName = dto.firstName
             existing.lastName = dto.lastName
             existing.department = dto.department
             existing.employeeCode = dto.employeeCode
-            existing.assignedSiteId = dto.assignedSiteId
+            JobSiteStore.applyAssignmentSnapshot(
+                to: existing,
+                siteId: dto.assignedSiteId,
+                name: dto.assignedSiteName,
+                location: dto.assignedSiteLocation
+            )
             existing.syncStatus = .synced
-            existing.updatedAt = Date()
+            existing.updatedAt = dto.updatedAt ?? Date()
             applyRemoteDepthSignature(dto, to: existing)
             try context.save()
             return existing
@@ -156,9 +156,14 @@ final class EmployeeRepository {
             existing.firstName = dto.firstName
             existing.lastName = dto.lastName
             existing.department = dto.department
-            existing.assignedSiteId = dto.assignedSiteId
+            JobSiteStore.applyAssignmentSnapshot(
+                to: existing,
+                siteId: dto.assignedSiteId,
+                name: dto.assignedSiteName,
+                location: dto.assignedSiteLocation
+            )
             existing.syncStatus = .synced
-            existing.updatedAt = Date()
+            existing.updatedAt = dto.updatedAt ?? Date()
             applyRemoteDepthSignature(dto, to: existing)
             try context.save()
             return existing
@@ -172,8 +177,15 @@ final class EmployeeRepository {
             lastName: dto.lastName,
             department: dto.department,
             assignedSiteId: dto.assignedSiteId,
+            assignedSiteName: dto.assignedSiteName ?? "",
+            assignedSiteLocation: dto.assignedSiteLocation ?? "",
             faceEmbeddings: [],
             syncStatus: .synced
+        )
+        JobSiteStore.ensureFromEmployeeAssignment(
+            id: dto.assignedSiteId,
+            name: dto.assignedSiteName,
+            location: dto.assignedSiteLocation
         )
         applyRemoteDepthSignature(dto, to: employee)
         try save(employee)

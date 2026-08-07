@@ -189,7 +189,9 @@ struct EmployeeDTO: Codable, Identifiable {
 
     /// Builds sync payload including denormalized job site labels for IMS display.
     static func fromLocalEmployee(_ employee: Employee, serverId: String?) -> EmployeeDTO {
-        let site = JobSiteStore.syncFields(for: employee.assignedSiteId)
+        let catalog = JobSiteStore.syncFields(for: employee.assignedSiteId)
+        let siteNameSnapshot = employee.assignedSiteName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let siteLocationSnapshot = employee.assignedSiteLocation.trimmingCharacters(in: .whitespacesAndNewlines)
         return EmployeeDTO(
             serverId: serverId,
             localId: employee.id,
@@ -197,9 +199,9 @@ struct EmployeeDTO: Codable, Identifiable {
             firstName: employee.firstName,
             lastName: employee.lastName,
             department: employee.department,
-            assignedSiteId: site.id,
-            assignedSiteName: site.name,
-            assignedSiteLocation: site.location,
+            assignedSiteId: employee.assignedSiteId ?? catalog.id,
+            assignedSiteName: siteNameSnapshot.isEmpty ? catalog.name : siteNameSnapshot,
+            assignedSiteLocation: siteLocationSnapshot.isEmpty ? catalog.location : siteLocationSnapshot,
             encryptedDepthSignatureBase64: employee.faceDepthSignatureData.isEmpty
                 ? nil
                 : employee.faceDepthSignatureData.base64EncodedString(),
@@ -249,9 +251,13 @@ struct EmployeeDTO: Codable, Identifiable {
         try container.encode(firstName, forKey: .firstName)
         try container.encode(lastName, forKey: .lastName)
         try container.encode(department, forKey: .department)
-        try container.encodeIfPresent(assignedSiteId, forKey: .assignedSiteId)
-        try container.encodeIfPresent(assignedSiteName, forKey: .assignedSiteName)
-        try container.encodeIfPresent(assignedSiteLocation, forKey: .assignedSiteLocation)
+        if let assignedSiteId {
+            try container.encode(assignedSiteId, forKey: .assignedSiteId)
+        } else {
+            try container.encodeNil(forKey: .assignedSiteId)
+        }
+        try container.encode(assignedSiteName ?? "", forKey: .assignedSiteName)
+        try container.encode(assignedSiteLocation ?? "", forKey: .assignedSiteLocation)
         try container.encodeIfPresent(encryptedDepthSignatureBase64, forKey: .encryptedDepthSignatureBase64)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(createdAt, forKey: .createdAt)

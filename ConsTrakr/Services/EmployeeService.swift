@@ -75,6 +75,13 @@ final class EmployeeService {
             faceDepthSignature: faceDepthSignature,
             syncStatus: .pending
         )
+        let siteFields = JobSiteStore.syncFields(for: assignedSiteId)
+        JobSiteStore.applyAssignmentSnapshot(
+            to: employee,
+            siteId: assignedSiteId,
+            name: siteFields.name,
+            location: siteFields.location
+        )
         try repository.save(employee)
 
         var entities: [FaceEmbeddingEntity] = []
@@ -157,11 +164,42 @@ final class EmployeeService {
         employee.firstName = first
         employee.lastName = last
         employee.department = dept.isEmpty ? "General" : dept
-        employee.assignedSiteId = assignedSiteId
+        let siteFields = JobSiteStore.syncFields(for: assignedSiteId)
+        JobSiteStore.applyAssignmentSnapshot(
+            to: employee,
+            siteId: assignedSiteId,
+            name: siteFields.name,
+            location: siteFields.location
+        )
         employee.updatedAt = Date()
         employee.syncStatus = .pending
         try repository.update(employee)
         NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
+    }
+
+    /// Pull latest name, department, and job site from IMS before attendance validation.
+    func refreshProfileFromServer(_ employee: Employee) async {
+        guard NetworkMonitor.shared.isConnected else { return }
+        guard let serverId = APIDecoding.normalizedServerId(employee.serverId) else { return }
+        do {
+            let dtos = try await APIService.shared.getEmployees(serverId: serverId)
+            guard let dto = dtos.first else { return }
+            employee.firstName = dto.firstName
+            employee.lastName = dto.lastName
+            employee.department = dto.department
+            JobSiteStore.applyAssignmentSnapshot(
+                to: employee,
+                siteId: dto.assignedSiteId,
+                name: dto.assignedSiteName,
+                location: dto.assignedSiteLocation
+            )
+            if let remoteUpdated = dto.updatedAt {
+                employee.updatedAt = remoteUpdated
+            }
+            try repository.update(employee)
+        } catch {
+            // Offline or transient API errors — validate against last known local profile.
+        }
     }
 
     func count() throws -> Int {

@@ -904,6 +904,8 @@ final class AttendanceScannerViewModel {
         let key = recordKey(employeeId: match.employeeId, checkType: checkType)
 
         do {
+            try await verifySiteBeforePunch(employeeId: match.employeeId)
+
             if let existing = try attendanceService.todaysRecord(
                 employeeId: match.employeeId,
                 checkType: checkType
@@ -916,22 +918,6 @@ final class AttendanceScannerViewModel {
             if recordedKeysToday.contains(key) {
                 await presentAlreadyRecorded(match: match, at: nil)
                 return
-            }
-
-            if let employee = try employeeService?.employee(id: match.employeeId) {
-                do {
-                    try await siteLocationGate.verifyAttendanceSite(for: employee)
-                } catch {
-                    await presentInvalidSitePunch(match: match, error: error)
-                    return
-                }
-            } else if SiteGeofenceSettings.isRequired, let defaultSite = JobSiteStore.defaultSite {
-                do {
-                    try await siteLocationGate.verifyInside(site: defaultSite)
-                } catch {
-                    await presentInvalidSitePunch(match: match, error: error)
-                    return
-                }
             }
 
             let attendance = try attendanceService.record(
@@ -961,6 +947,9 @@ final class AttendanceScannerViewModel {
             successFlash = false
             endSession(status: "Choose Time In or Time Out to begin.")
             lastScanDate = Date()
+        } catch let error as SiteLocationGate.GateError {
+            await presentInvalidSitePunch(match: match, error: error)
+            return
         } catch AttendanceService.ServiceError.alreadyRecordedToday {
             let existing = try? attendanceService.todaysRecord(
                 employeeId: match.employeeId,
@@ -972,6 +961,17 @@ final class AttendanceScannerViewModel {
             errorMessage = error.localizedDescription
             endSession(status: "Choose Time In or Time Out to begin.")
             lastScanDate = Date()
+        }
+    }
+
+    private func verifySiteBeforePunch(employeeId: UUID) async throws {
+        if let employee = try employeeService?.employee(id: employeeId) {
+            await employeeService?.refreshProfileFromServer(employee)
+            try await siteLocationGate.verifyAttendanceSite(for: employee)
+            return
+        }
+        if SiteGeofenceSettings.isRequired, let defaultSite = JobSiteStore.defaultSite {
+            try await siteLocationGate.verifyInside(site: defaultSite)
         }
     }
 

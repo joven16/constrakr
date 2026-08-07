@@ -61,9 +61,13 @@ final class SyncService {
 
         let empRepo = EmployeeRepository(context: context)
         _ = try empRepo.repairStaleSyncState()
-        summary.jobSitesSynced = try await syncJobSites()
+        summary.jobSitesSynced = try await syncJobSites(context: context)
         await processPendingEmployeeDeletions()
         summary.employeesImportedFromIMS = try await importMissingRemoteEmployees(context: context)
+
+        await api.warmConnection()
+        try await uploadUpdatedEmployees(context: context)
+        try await pushChangedJobSiteAssignments(context: context)
         _ = try await mergeRemoteEmployeeProfileUpdates(context: context)
 
         do {
@@ -89,6 +93,7 @@ final class SyncService {
 
         summary = try await uploadPendingEmployees(context: context, summary: summary)
         try await uploadUpdatedEmployees(context: context)
+        try await pushChangedJobSiteAssignments(context: context)
         summary = try await uploadPendingEmbeddings(context: context, summary: summary)
         summary = try await uploadPendingEnrollmentPhotos(context: context, summary: summary)
         try await uploadPendingAttendance(context: context)
@@ -635,7 +640,7 @@ final class SyncService {
     }
 
     /// Bidirectional job site catalog sync — runs before employee upload so assignments resolve.
-    private func syncJobSites() async throws -> Int {
+    private func syncJobSites(context: ModelContext) async throws -> Int {
         for siteId in JobSiteStore.pendingDeleteIds {
             do {
                 try await api.deleteJobSite(id: siteId)
@@ -647,12 +652,17 @@ final class SyncService {
 
         let remote = try await api.getJobSites()
         JobSiteStore.applyRemoteCatalog(remote)
+        try remapEmployeeSiteIds(JobSiteStore.deduplicateCatalog(), context: context)
 
         let toPush = JobSiteStore.sitesNeedingUpload(comparedTo: remote)
         var pushed = 0
         for site in toPush {
             let dto = JobSiteDTO.fromLocal(site)
-            _ = try await api.postJobSite(dto)
+            let response = try await api.postJobSite(dto)
+            if response.id != dto.id {
+                JobSiteStore.remapSiteId(from: dto.id, to: response.id)
+                try remapEmployeeSiteIds([dto.id: response.id], context: context)
+            }
             pushed += 1
         }
 
@@ -661,7 +671,58 @@ final class SyncService {
             JobSiteStore.applyRemoteCatalog(remoteAfter)
         }
 
+        try remapEmployeeSiteIds(JobSiteStore.deduplicateCatalog(), context: context)
         return pushed
+    }
+
+    private func remapEmployeeSiteIds(_ remap: [UUID: UUID], context: ModelContext) throws {
+        guard !remap.isEmpty else { return }
+        let empRepo = EmployeeRepository(context: context)
+        for employee in try empRepo.fetchAll() {
+            guard let assigned = employee.assignedSiteId, let canonical = remap[assigned] else { continue }
+            employee.assignedSiteId = canonical
+            if let site = JobSiteStore.site(id: canonical) {
+                employee.assignedSiteName = site.displayTitle
+                employee.assignedSiteLocation = site.locationLabel
+            }
+            if employee.syncStatus == .synced {
+                employee.syncStatus = .pending
+            }
+            try empRepo.update(employee, persist: false)
+        }
+        try persist(context)
+    }
+
+    /// Pushes job site assignment for synced employees when local differs from IMS.
+    private func pushChangedJobSiteAssignments(context: ModelContext) async throws {
+        let empRepo = EmployeeRepository(context: context)
+        let remoteEmployees = try await api.getEmployees()
+        var remoteByServerId: [String: EmployeeDTO] = [:]
+        for dto in remoteEmployees {
+            guard let serverId = APIDecoding.normalizedServerId(dto.serverId) else { continue }
+            remoteByServerId[serverId] = dto
+        }
+
+        for employee in try empRepo.fetchAll() {
+            guard employee.syncStatus == .synced,
+                  let serverId = APIDecoding.normalizedServerId(employee.serverId),
+                  let remote = remoteByServerId[serverId]
+            else { continue }
+
+            if employee.assignedSiteId == remote.assignedSiteId {
+                let localName = employee.assignedSiteName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let remoteName = (remote.assignedSiteName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if localName == remoteName || (localName.isEmpty && remoteName.isEmpty) {
+                    continue
+                }
+            }
+
+            let dto = EmployeeDTO.fromLocalEmployee(employee, serverId: serverId)
+            _ = try await api.putEmployee(dto)
+            employee.updatedAt = Date()
+            try empRepo.update(employee, persist: false)
+        }
+        try persist(context)
     }
 
     /// Applies IMS profile edits (name, department, job site) when the server row is newer.
@@ -678,15 +739,15 @@ final class SyncService {
                   remoteUpdated > local.updatedAt
             else { continue }
 
-            JobSiteStore.ensureFromEmployeeAssignment(
-                id: dto.assignedSiteId,
+            JobSiteStore.applyAssignmentSnapshot(
+                to: local,
+                siteId: dto.assignedSiteId,
                 name: dto.assignedSiteName,
                 location: dto.assignedSiteLocation
             )
             local.firstName = dto.firstName
             local.lastName = dto.lastName
             local.department = dto.department
-            local.assignedSiteId = dto.assignedSiteId
             local.updatedAt = remoteUpdated
             try empRepo.update(local, persist: false)
             merged += 1
@@ -792,7 +853,7 @@ final class SyncService {
         let embRepo = FaceEmbeddingRepository(context: context)
         let photoRepo = FaceEnrollmentPhotoRepository(context: context)
 
-        _ = try await syncJobSites()
+        _ = try await syncJobSites(context: context)
 
         // INTEGRATION: GET /employees
         let remoteEmployees = try await api.getEmployees()
