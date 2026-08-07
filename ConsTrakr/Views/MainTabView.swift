@@ -32,7 +32,7 @@ struct MainTabView: View {
 
             DTRView()
                 .tabItem {
-                    Label("DTR", systemImage: "calendar")
+                    Label("Time Record", systemImage: "calendar")
                 }
                 .tag(AppTabRouter.Tab.dtr)
 

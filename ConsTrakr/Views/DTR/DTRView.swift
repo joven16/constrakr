@@ -94,7 +94,7 @@ struct DTRView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Text("Upload DTR and other pending data from the Employees tab → Sync.")
+                Text("Upload pending data from the Employees tab (pull down to sync).")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -105,13 +105,21 @@ struct DTRView: View {
     }
 
     private var datePicker: some View {
-        DatePicker(
-            "DTR Date",
-            selection: $viewModel.selectedDate,
-            displayedComponents: .date
-        )
-        .datePickerStyle(.compact)
-        .padding()
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Daily Time Record")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+            DatePicker(
+                "DTR Date",
+                selection: $viewModel.selectedDate,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.compact)
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
+        .padding(.top, 8)
     }
 
     private var columnHeader: some View {

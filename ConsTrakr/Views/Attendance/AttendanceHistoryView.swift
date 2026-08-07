@@ -68,7 +68,7 @@ struct AttendanceHistoryView: View {
         .navigationTitle("Sync History")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Clear History", role: .destructive) {
+                Button("Clear Sync List", role: .destructive) {
                     confirmClear = true
                 }
                 .disabled(viewModel.records.isEmpty)

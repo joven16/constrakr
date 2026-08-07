@@ -97,18 +97,7 @@ struct EmployeeRegistrationView: View {
             } header: {
                 Text("Employee Information")
             } footer: {
-                Text("Assign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.")
-            }
-
-            Section {
-                HStack {
-                    Label("Scan ID", systemImage: "doc.text.viewfinder")
-                    Spacer()
-                    Text("Next")
-                        .foregroundStyle(.secondary)
-                }
-            } footer: {
-                Text("Step 2 captures a government ID photo. Step 3 is the live face enrollment.")
+                Text("Assign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
             }
         }
         .scrollContentBackground(.hidden)
@@ -362,9 +351,9 @@ struct EmployeeRegistrationView: View {
 
     private var navigationTitle: String {
         switch viewModel.step {
-        case .details: return "New Employee"
-        case .idDocument: return "Scan ID"
-        case .faceScan, .done: return "Face Setup"
+        case .details: return "New Employee (1/3)"
+        case .idDocument: return "Scan ID (2/3)"
+        case .faceScan, .done: return "Face Setup (3/3)"
         }
     }
 

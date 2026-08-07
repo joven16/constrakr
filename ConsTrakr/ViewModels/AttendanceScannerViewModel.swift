@@ -239,7 +239,7 @@ final class AttendanceScannerViewModel {
         guard !isProcessing else { return }
         if isScannerLocationBlocked {
             siteGateMessage = scannerLocationMessage
-                ?? "You must be at the job site to punch. Update location in Settings → Job Sites."
+                ?? "You must be at the job site to punch. Update location in More → Job Sites."
             return
         }
         pendingConfirmType = type
@@ -325,7 +325,7 @@ final class AttendanceScannerViewModel {
             isScannerLocationBlocked = !inside
             scannerLocationMessage = inside
                 ? nil
-                : "You are outside \(site.displayTitle). Move to the site or update location in Settings → Job Sites."
+                : "You are outside \(site.displayTitle). Move to the site or update location in More → Job Sites."
         case .failure(let error):
             isScannerLocationBlocked = true
             scannerLocationMessage = error.localizedDescription

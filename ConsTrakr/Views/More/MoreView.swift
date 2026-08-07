@@ -55,6 +55,7 @@ struct MoreView: View {
                 }
             }
             .navigationTitle("More")
+            .navigationBarTitleDisplayMode(.inline)
             .alert("Clear all DTR records?", isPresented: $confirmClearDTR) {
                 Button("Cancel", role: .cancel) {}
                 Button("Clear DTR", role: .destructive) {

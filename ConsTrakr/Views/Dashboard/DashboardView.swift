@@ -9,6 +9,7 @@ import SwiftData
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncQueue.self) private var syncQueue
+    @Environment(AppTabRouter.self) private var tabRouter
     @State private var viewModel = DashboardViewModel()
 
     var body: some View {
@@ -20,36 +21,50 @@ struct DashboardView: View {
                             title: "Employees",
                             value: "\(viewModel.employeeCount)",
                             systemImage: "person.3.fill",
-                            tint: .cyan
+                            tint: .cyan,
+                            action: { tabRouter.selectedTab = .employees }
                         )
                         StatCard(
                             title: "Today",
                             value: "\(viewModel.todayAttendanceCount)",
                             systemImage: "calendar",
-                            tint: .mint
+                            tint: .mint,
+                            action: { tabRouter.selectedTab = .dtr }
                         )
                         StatCard(
                             title: "Pending Sync",
                             value: "\(viewModel.pendingSyncCount)",
                             systemImage: "arrow.triangle.2.circlepath",
-                            tint: .orange
+                            tint: .orange,
+                            action: { tabRouter.selectedTab = .employees }
                         )
                         StatCard(
                             title: "Network",
                             value: viewModel.isOnline ? "Online" : "Offline",
                             systemImage: viewModel.isOnline ? "wifi" : "wifi.slash",
-                            tint: viewModel.isOnline ? .green : .secondary
+                            tint: viewModel.isOnline ? .green : .secondary,
+                            action: { tabRouter.selectedTab = .more }
                         )
                     }
 
                     HStack {
-                        Text("Recent Attendance")
-                            .font(.headline)
-                        Spacer()
-                        if viewModel.pendingSyncCount > 0 {
-                            Text("\(viewModel.pendingSyncCount) pending · Sync on Employees")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Recent Attendance")
+                                .font(.headline)
+                            Text("Latest punches on this device")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if viewModel.pendingSyncCount > 0 {
+                            Text("\(viewModel.pendingSyncCount) pending · Pull down on Employees")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if !viewModel.recentAttendance.isEmpty {
+                            Button("See DTR") {
+                                tabRouter.selectedTab = .dtr
+                            }
+                            .font(.caption)
                         }
                     }
 
@@ -90,7 +105,8 @@ struct DashboardView: View {
                 )
                 .ignoresSafeArea()
             )
-            .navigationTitle("ConsTrakr")
+            .navigationTitle("Dashboard")
+            .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 viewModel.configure(context: modelContext, syncQueue: syncQueue)
             }

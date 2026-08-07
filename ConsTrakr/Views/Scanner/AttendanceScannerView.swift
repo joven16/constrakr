@@ -65,7 +65,7 @@ struct AttendanceScannerView: View {
                 )
                 .ignoresSafeArea()
             )
-            .navigationTitle("")
+            .navigationTitle("Scanner")
             .navigationBarTitleDisplayMode(.inline)
             .alert(
                 viewModel.pendingConfirmType?.confirmPrompt ?? "Confirm",
@@ -467,7 +467,7 @@ struct AttendanceScannerView: View {
                 .font(.system(size: 44))
             Text("Off Site")
                 .font(.title3.weight(.semibold))
-            Text(viewModel.scannerLocationMessage ?? "Move to the job site or update location in Settings → Job Sites.")
+            Text(viewModel.scannerLocationMessage ?? "Move to the job site or update location in More → Job Sites.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)

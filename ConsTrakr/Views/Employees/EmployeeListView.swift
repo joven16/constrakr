@@ -14,7 +14,6 @@ struct EmployeeListView: View {
     @State private var viewModel = EmployeeListViewModel()
     @State private var employeesPendingDeletion: [Employee] = []
     @State private var showDeleteConfirmation = false
-    @State private var showSyncAlert = false
 
     var body: some View {
         NavigationStack {
@@ -24,76 +23,43 @@ struct EmployeeListView: View {
 
     @ViewBuilder
     private var employeeListContent: some View {
-        Group {
+        List {
+            syncSection
+
             if viewModel.employees.isEmpty {
-                ContentUnavailableView(
-                    "No Employees",
-                    systemImage: "person.slash",
-                    description: Text("Tap Register to enroll a new employee.")
-                )
+                Section {
+                    ContentUnavailableView(
+                        "No Employees",
+                        systemImage: "person.slash",
+                        description: Text("Tap Register to enroll a new employee, or pull down to sync from IMS.")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                }
             } else {
-                List {
-                    syncSection
-
-                    if let report = viewModel.cloudReport {
-                        Section {
-                            LabeledContent("On IMS", value: "\(report.confirmedOnIMS)/\(report.localTotal)")
-                            LabeledContent("Need upload", value: "\(report.needsUpload)")
-                            LabeledContent("IMS server", value: "\(report.remoteTotal) (\(report.remoteRawCount) raw)")
-                            LabeledContent("Checked", value: report.checkedAt.attendanceDisplay)
-                            if let note = report.statusNote {
-                                Text(note)
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                            } else if report.needsUpload > 0 {
-                                Text("Missing employees upload on the next sync (every \(SyncSettings.intervalLabel), or tap Sync in the toolbar).")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                            }
-                        } header: {
-                            Text("IMS employee check")
-                        }
-                    }
-
-                    ForEach(viewModel.employees, id: \.id) { employee in
-                        NavigationLink {
-                            EmployeeDetailView(
-                                employee: employee,
-                                cloudItem: viewModel.cloudItem(for: employee.id)
-                            )
-                        } label: {
-                            EmployeeRow(
-                                employee: employee,
-                                cloudItem: viewModel.cloudItem(for: employee.id)
-                            )
-                        }
-                    }
-                    .onDelete { indexSet in
-                        employeesPendingDeletion = indexSet.map { viewModel.employees[$0] }
-                        showDeleteConfirmation = true
+                ForEach(viewModel.employees, id: \.id) { employee in
+                    NavigationLink {
+                        EmployeeDetailView(
+                            employee: employee,
+                            cloudItem: viewModel.cloudItem(for: employee.id)
+                        )
+                    } label: {
+                        EmployeeRow(
+                            employee: employee,
+                            cloudItem: viewModel.cloudItem(for: employee.id)
+                        )
                     }
                 }
-                .listStyle(.insetGrouped)
+                .onDelete { indexSet in
+                    employeesPendingDeletion = indexSet.map { viewModel.employees[$0] }
+                    showDeleteConfirmation = true
+                }
             }
         }
-        .navigationTitle("")
+        .listStyle(.insetGrouped)
+        .navigationTitle("Employees")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    Task {
-                        await viewModel.syncNow()
-                        showSyncAlert = true
-                    }
-                } label: {
-                    if syncQueue.isSyncing || viewModel.isCheckingCloud {
-                        ProgressView()
-                    } else {
-                        Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                }
-                .disabled(viewModel.isCheckingCloud || syncQueue.isSyncing)
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     EmployeeRegistrationView()
@@ -142,66 +108,61 @@ struct EmployeeListView: View {
             viewModel.refresh()
         }
         .refreshable {
-            viewModel.refresh()
-            await viewModel.checkCloudIfNeeded()
-        }
-        .alert("Sync", isPresented: $showSyncAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(syncAlertMessage)
+            await viewModel.syncNow()
         }
     }
 
     private var syncSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 4) {
-                Label("\(syncQueue.pendingCount) pending", systemImage: "arrow.up.circle")
-                    .font(.caption.weight(.semibold))
-                if let last = syncQueue.lastSyncDate {
-                    Text("Last sync: \(last.attendanceDisplay)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Not synced yet")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 10) {
+                if syncQueue.isSyncing || viewModel.isCheckingCloud {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.top, 2)
                 }
-                if let attempt = syncQueue.lastSyncAttemptDate {
-                    let stale = syncQueue.lastSyncDate.map { attempt.timeIntervalSince($0) > 30 } ?? true
-                    if stale {
-                        Text("Last attempt: \(attempt.attendanceDisplay)")
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(syncStatusLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if let warning = syncWarningLine {
+                        Text(warning)
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.orange)
                     }
-                }
-                Text("Tap Sync in the toolbar to upload employees, face data, and DTR.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Text("Auto sync every \(SyncSettings.intervalLabel) while app is open")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                if let error = syncQueue.lastError, !error.isEmpty,
-                   !(NetworkMonitor.shared.isConnected && NetworkError.isOfflineMessage(error)) {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
                 }
             }
             .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
         }
     }
 
-    private var syncAlertMessage: String {
-        if let error = syncQueue.lastError, !error.isEmpty {
+    private var syncStatusLine: String {
+        var parts: [String] = []
+        if syncQueue.pendingCount > 0 {
+            parts.append("\(syncQueue.pendingCount) pending")
+        }
+        if let last = syncQueue.lastSyncDate {
+            parts.append("Last sync \(last.attendanceDisplay)")
+        } else {
+            parts.append("Not synced yet")
+        }
+        parts.append("Pull down to sync")
+        return parts.joined(separator: " · ")
+    }
+
+    private var syncWarningLine: String? {
+        if let error = syncQueue.lastError, !error.isEmpty,
+           !(NetworkMonitor.shared.isConnected && NetworkError.isOfflineMessage(error)) {
             return error
         }
-        if let summary = syncQueue.lastPushSummary?.successMessage, !summary.isEmpty {
-            return summary
+        if let note = viewModel.cloudReport?.statusNote {
+            return note
         }
-        if let report = viewModel.cloudReport?.summaryLine {
-            return report
+        if let needsUpload = viewModel.cloudReport?.needsUpload, needsUpload > 0 {
+            return "\(needsUpload) employee\(needsUpload == 1 ? "" : "s") need upload — pull down to sync."
         }
-        return "Sync finished."
+        return nil
     }
 
     private var deleteConfirmationMessage: String {
@@ -319,16 +280,6 @@ struct EmployeeDetailView: View {
                 LabeledContent("IMS status") {
                     CloudStatusBadge(status: cloudStatus)
                 }
-                if let cloudItem {
-                    LabeledContent("Checked", value: cloudItem.checkedAt.attendanceDisplay)
-                    if let imsUpdatedAt = cloudItem.imsUpdatedAt {
-                        LabeledContent("IMS updated", value: imsUpdatedAt.attendanceDisplay)
-                    }
-                    LabeledContent("Local sync", value: cloudItem.localSyncStatus.displayName)
-                }
-                if let serverId = employee.serverId, !serverId.isEmpty {
-                    LabeledContent("Server ID", value: serverId)
-                }
                 if cloudStatus == .needsUpload {
                     LabeledContent("Upload", value: employee.syncStatus.displayName)
                 }
@@ -357,7 +308,7 @@ struct EmployeeDetailView: View {
 
             Section("Registered Faces") {
                 if enrollmentPhotos.isEmpty {
-                    Text("No registration photos available. Re-register this employee to capture pose images.")
+                    Text("No registration photos on this device. Delete this employee and register again to capture new face photos.")
                         .foregroundStyle(.secondary)
                         .font(.subheadline)
                 } else {
@@ -383,18 +334,32 @@ struct EmployeeDetailView: View {
                 }
             }
 
-            Section("Face Embeddings") {
-                if employee.faceEmbeddings.isEmpty {
-                    Text("No embeddings enrolled")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(employee.faceEmbeddings, id: \.pose) { embedding in
-                        HStack {
-                            Label(embedding.pose.displayName, systemImage: embedding.pose.systemImage)
-                            Spacer()
-                            Text("\(embedding.values.count)-d")
-                                .font(.caption.monospaced())
+            if cloudItem != nil || !employee.faceEmbeddings.isEmpty || (employee.serverId?.isEmpty == false) {
+                Section {
+                    DisclosureGroup("Sync & technical details") {
+                        if let cloudItem {
+                            LabeledContent("Checked", value: cloudItem.checkedAt.attendanceDisplay)
+                            if let imsUpdatedAt = cloudItem.imsUpdatedAt {
+                                LabeledContent("IMS updated", value: imsUpdatedAt.attendanceDisplay)
+                            }
+                            LabeledContent("Local sync", value: cloudItem.localSyncStatus.displayName)
+                        }
+                        if let serverId = employee.serverId, !serverId.isEmpty {
+                            LabeledContent("Server ID", value: serverId)
+                        }
+                        if employee.faceEmbeddings.isEmpty {
+                            Text("No face embeddings enrolled")
                                 .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(employee.faceEmbeddings, id: \.pose) { embedding in
+                                HStack {
+                                    Label(embedding.pose.displayName, systemImage: embedding.pose.systemImage)
+                                    Spacer()
+                                    Text("\(embedding.values.count)-d")
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
                 }
