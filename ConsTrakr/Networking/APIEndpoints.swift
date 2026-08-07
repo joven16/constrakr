@@ -523,7 +523,23 @@ struct AdminLoginResponse: Decodable {
                 .init(codingPath: decoder.codingPath, debugDescription: "Missing access_token or token")
             )
         }
-        expiresIn = try container.decodeIfPresent(Int.self, forKey: .expiresIn)
+        expiresIn = Self.decodeFlexibleInt(from: container, forKey: .expiresIn)
+    }
+
+    private static func decodeFlexibleInt(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> Int? {
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
+            return Int(value)
+        }
+        if let text = try? container.decodeIfPresent(String.self, forKey: key) {
+            return Int(text)
+        }
+        return nil
     }
 }
 

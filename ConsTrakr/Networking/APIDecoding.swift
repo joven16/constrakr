@@ -265,4 +265,25 @@ enum APIDecoding {
         }
         return nil
     }
+
+    /// Reads `{ "error": "..." }` from IMS API JSON bodies.
+    static func apiErrorMessage(from data: Data?) -> String? {
+        guard let data, !data.isEmpty,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = object["error"] as? String else {
+            return nil
+        }
+        return loginErrorMessage(code: error)
+    }
+
+    static func loginErrorMessage(code: String) -> String {
+        switch code {
+        case "invalid_credentials":
+            return "Wrong sync admin username or password. Use sync_admin (not the IMS web login). Create it on the server with: python manage.py create_constrakr_admin sync_admin 'your-password'"
+        case "username_and_password_required":
+            return "Username and password are required."
+        default:
+            return code.replacingOccurrences(of: "_", with: " ")
+        }
+    }
 }

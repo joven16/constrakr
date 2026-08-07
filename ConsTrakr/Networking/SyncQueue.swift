@@ -184,6 +184,24 @@ final class SyncQueue {
         return summary
     }
 
+    /// Clears local data then runs a full cloud restore — for testing replacement-device recovery.
+    func testRestoreFromServer() async throws -> RestoreTestResult {
+        guard let context else { throw NetworkError.invalidResponse }
+        isSyncing = true
+        lastError = nil
+        defer {
+            isSyncing = false
+            refreshPendingCount()
+        }
+        let before = try RestoreTestService.snapshot(context: context)
+        try RestoreTestService.wipeLocalData(context: context)
+        let summary = try await syncService.restoreFromServer(context: context)
+        lastRestoreMessage = summary.successMessage
+        lastSyncDate = Date()
+        lastSyncAttemptDate = Date()
+        return RestoreTestResult(wiped: before, restored: summary)
+    }
+
     func refreshPendingCount() {
         guard let context else { return }
         let attendance = AttendanceRepository(context: context)

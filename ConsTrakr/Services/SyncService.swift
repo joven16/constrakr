@@ -62,6 +62,7 @@ final class SyncService {
         let empRepo = EmployeeRepository(context: context)
         _ = try empRepo.repairStaleSyncState()
         await processPendingEmployeeDeletions()
+        summary.employeesImportedFromIMS = try await importMissingRemoteEmployees(context: context)
 
         do {
             try EmployeeChildSyncPreparer.prepareAll(context: context, persist: true)
@@ -116,6 +117,7 @@ final class SyncService {
     struct PushSyncSummary {
         var employeesPosted = 0
         var employeesLinked = 0
+        var employeesImportedFromIMS = 0
         var employeesOnServer = 0
         var employeesStillLocalOnly = 0
         var employeesResetForRetry = 0
@@ -133,6 +135,9 @@ final class SyncService {
         var successMessage: String {
             if employeesPosted == 0 && employeesLinked == 0 {
                 var parts = ["\(employeesConfirmedOnIMS)/\(employeesLocalTotal) employees on IMS"]
+                if employeesImportedFromIMS > 0 {
+                    parts.append("\(employeesImportedFromIMS) imported from IMS")
+                }
                 if embeddingsUploaded > 0 || photosUploaded > 0 {
                     parts.append("\(embeddingsUploaded) embeddings, \(photosUploaded) photos uploaded")
                 }
@@ -644,6 +649,83 @@ final class SyncService {
                 group.addTask { try await upload(item) }
             }
         }
+    }
+
+    /// Pulls employees reactivated on IMS (Restore to app) that are missing on this device.
+    private func importMissingRemoteEmployees(context: ModelContext) async throws -> Int {
+        let empRepo = EmployeeRepository(context: context)
+        let remoteEmployees = try await api.getEmployees()
+
+        var localByServerId: [String: UUID] = [:]
+        var localIds = Set<UUID>()
+        for employee in try empRepo.fetchAll() {
+            localIds.insert(employee.id)
+            if let serverId = APIDecoding.normalizedServerId(employee.serverId) {
+                localByServerId[serverId] = employee.id
+            }
+        }
+
+        var importedServerIds = Set<String>()
+        var imported = 0
+
+        for dto in remoteEmployees {
+            guard let serverId = APIDecoding.normalizedServerId(dto.serverId) else { continue }
+            if localByServerId[serverId] != nil { continue }
+
+            if localIds.contains(dto.localId) {
+                if let existing = try empRepo.fetch(id: dto.localId) {
+                    try linkEmployeeToServer(
+                        existing,
+                        serverId: serverId,
+                        context: context,
+                        persist: false
+                    )
+                    localByServerId[serverId] = existing.id
+                    importedServerIds.insert(serverId)
+                }
+                continue
+            }
+
+            if try empRepo.fetch(code: dto.employeeCode) != nil { continue }
+
+            let employee = try empRepo.upsertFromRemote(dto)
+            imported += 1
+            importedServerIds.insert(serverId)
+            localByServerId[serverId] = employee.id
+            localIds.insert(employee.id)
+        }
+
+        guard !importedServerIds.isEmpty else { return 0 }
+
+        let embRepo = FaceEmbeddingRepository(context: context)
+        let photoRepo = FaceEnrollmentPhotoRepository(context: context)
+
+        for dto in try await api.getFaceEmbeddings() {
+            guard let serverId = dto.employeeServerId,
+                  importedServerIds.contains(serverId),
+                  let localEmployeeId = localByServerId[serverId] else { continue }
+            try embRepo.upsertFromRemote(dto, employeeLocalId: localEmployeeId)
+            if let employee = try empRepo.fetch(id: localEmployeeId) {
+                let entities = try embRepo.fetch(forEmployeeLocalId: localEmployeeId)
+                let embeddings = entities.compactMap { try? $0.decryptedEmbedding() }
+                employee.faceEmbeddings = embeddings
+                employee.syncStatus = .synced
+                try empRepo.update(employee, persist: false)
+            }
+        }
+
+        for dto in try await api.getFaceEnrollmentPhotos(includeMedia: true) {
+            guard let serverId = dto.employeeServerId,
+                  importedServerIds.contains(serverId),
+                  let localEmployeeId = localByServerId[serverId] else { continue }
+            try photoRepo.upsertFromRemote(dto, employeeLocalId: localEmployeeId)
+        }
+
+        try persist(context)
+        cachedRemoteEmployeeIndex = nil
+        cachedRemoteEmployeeIndexAt = nil
+        NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
+        return imported
     }
 
     // MARK: - Restore (new device)

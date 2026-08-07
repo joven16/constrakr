@@ -122,6 +122,10 @@ final class SettingsViewModel {
     private(set) var isAdminAuthenticated = false
     private(set) var statusMessage: String?
 
+    private(set) var isTestingRestore = false
+    var restoreTestMessage: String?
+    var showRestoreTestAlert = false
+
     private var syncQueue: SyncQueue?
 
     init() {
@@ -217,6 +221,7 @@ final class SettingsViewModel {
     }
 
     func signInAdmin() async {
+        await APIService.shared.updateBaseURL(apiBaseURL)
         do {
             try await AdminSession.shared.signIn(username: adminUsername, password: adminPassword)
             adminPassword = ""
@@ -239,7 +244,10 @@ final class SettingsViewModel {
             return
         }
         isSyncing = true
-        defer { refresh() }
+        defer {
+            isSyncing = false
+            refresh()
+        }
         do {
             let summary = try await syncQueue?.restoreFromServer()
             if let summary {
@@ -247,6 +255,43 @@ final class SettingsViewModel {
             }
         } catch {
             statusMessage = error.localizedDescription
+        }
+    }
+
+    /// Wipes local roster/DTR/enrollment data, then downloads everything from IMS (IMS unchanged).
+    func testRestoreFromCloud() async {
+        guard AdminSession.shared.isAuthenticated else {
+            restoreTestMessage = "Sign in as sync admin first."
+            showRestoreTestAlert = true
+            return
+        }
+        guard NetworkMonitor.shared.isConnected else {
+            restoreTestMessage = NetworkError.offlineMessage
+            showRestoreTestAlert = true
+            return
+        }
+        isTestingRestore = true
+        isSyncing = true
+        defer {
+            isTestingRestore = false
+            isSyncing = false
+            refresh()
+        }
+        do {
+            await APIService.shared.updateBaseURL(apiBaseURL)
+            await AdminSession.shared.restorePersistedSession()
+            guard let result = try await syncQueue?.testRestoreFromServer() else {
+                restoreTestMessage = "Sync is not ready yet. Try again."
+                showRestoreTestAlert = true
+                return
+            }
+            restoreTestMessage = result.report
+            statusMessage = "Restore test OK: \(result.restored.successMessage)"
+            showRestoreTestAlert = true
+        } catch {
+            restoreTestMessage = error.localizedDescription
+            statusMessage = error.localizedDescription
+            showRestoreTestAlert = true
         }
     }
 

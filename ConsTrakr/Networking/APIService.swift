@@ -62,21 +62,48 @@ actor APIService {
         }
 
         let (data, response) = try await session.data(for: request)
-        try validate(data: data, response: response)
+        try validateLogin(data: data, response: response)
         do {
             let decoded = try JSONDecoder.api.decode(AdminLoginResponse.self, from: data)
+            guard !decoded.accessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw NetworkError.serverError(statusCode: 200, message: "Login succeeded but access_token was empty.")
+            }
             authToken = decoded.accessToken
             SyncAuthStore.saveSession(token: decoded.accessToken, username: username, expiresIn: decoded.expiresIn)
             return decoded
+        } catch let error as NetworkError {
+            throw error
         } catch {
+            if let apiError = APIDecoding.apiErrorMessage(from: data) {
+                throw NetworkError.serverError(
+                    statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                    message: apiError
+                )
+            }
             let snippet = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .prefix(240)
             throw NetworkError.serverError(
                 statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0,
-                message: "Login response invalid: \(snippet.map(String.init) ?? "decode error")"
+                message: "Login response invalid (expected access_token JSON): \(snippet.map(String.init) ?? "decode error")"
             )
         }
+    }
+
+    private func validateLogin(data: Data?, response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw NetworkError.invalidResponse
+        }
+        if http.statusCode == 401 {
+            authToken = nil
+            SyncAuthStore.clear()
+            throw NetworkError.serverError(
+                statusCode: 401,
+                message: APIDecoding.apiErrorMessage(from: data)
+                    ?? "Wrong sync admin username or password."
+            )
+        }
+        try validate(data: data, response: response)
     }
 
     /// Confirms the saved JWT still works (used when Test API runs after sign-in).

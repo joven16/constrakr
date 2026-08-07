@@ -57,6 +57,11 @@ enum EnrollmentPhotoStore {
         try? FileManager.default.removeItem(at: dir)
     }
 
+    static func deleteAll() {
+        let root = rootDirectory()
+        try? FileManager.default.removeItem(at: root)
+    }
+
     private static func rootDirectory() -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(folderName, isDirectory: true)

@@ -8,6 +8,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(SyncQueue.self) private var syncQueue
     @State private var viewModel = SettingsViewModel()
+    @State private var showRestoreTestConfirmation = false
     var embedsNavigation: Bool = true
 
     var body: some View {
@@ -61,6 +62,19 @@ struct SettingsView: View {
                         Task { await viewModel.restoreFromServer() }
                     }
                     .disabled(viewModel.isSyncing || !viewModel.isOnline)
+                    Button {
+                        showRestoreTestConfirmation = true
+                    } label: {
+                        if viewModel.isTestingRestore {
+                            HStack {
+                                ProgressView()
+                                Text("Testing restore…")
+                            }
+                        } else {
+                            Label("Test Restore (Clear Local & Download)", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .disabled(viewModel.isSyncing || viewModel.isTestingRestore || !viewModel.isOnline)
                     Button("Sign Out Admin", role: .destructive) {
                         viewModel.signOutAdmin()
                     }
@@ -77,7 +91,7 @@ struct SettingsView: View {
             } header: {
                 Text("IMS Sync & Restore")
             } footer: {
-                Text("Sign in with your IMS sync admin (e.g. sync_admin). Required for sync on the Employees tab and cloud restore to a replacement device. Restore downloads employees, face templates, enrollment photos, attendance history, and punch photos from the last 2 years.")
+                Text("Sign in with sync_admin. Restore adds cloud data to this device. Test Restore wipes local employees, face data, and DTR first, then downloads from IMS — simulates a replacement phone. IMS cloud backup is not deleted.")
             }
 
             Section {
@@ -273,6 +287,19 @@ struct SettingsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(viewModel.apiTestMessage ?? "")
+        }
+        .alert("Test cloud restore?", isPresented: $showRestoreTestConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear Local & Restore", role: .destructive) {
+                Task { await viewModel.testRestoreFromCloud() }
+            }
+        } message: {
+            Text("This removes all employees, face enrollment, and DTR records from this device only, then downloads the full backup from IMS (last 2 years of attendance, with photos). Your IMS data stays safe.")
+        }
+        .alert("Restore Test Result", isPresented: $viewModel.showRestoreTestAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.restoreTestMessage ?? "")
         }
     }
 }
