@@ -29,6 +29,10 @@ final class Employee {
     /// Encrypted TrueDepth face geometry from enrollment (empty if not scanned / no TrueDepth).
     var faceDepthSignatureData: Data = Data()
     var syncStatusRaw: String
+    /// Primary government ID type captured during registration (empty if skipped).
+    var idDocumentTypeRaw: String = ""
+    /// Optional ID number entered or typed during registration.
+    var idDocumentNumber: String = ""
     var createdAt: Date
     var updatedAt: Date
 
@@ -44,6 +48,8 @@ final class Employee {
         assignedSiteLocation: String = "",
         faceEmbeddings: [FaceEmbedding] = [],
         faceDepthSignature: FaceDepthSignature? = nil,
+        idDocumentType: IdDocumentType? = nil,
+        idDocumentNumber: String = "",
         syncStatus: SyncStatus = .pending,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -66,6 +72,8 @@ final class Employee {
             self.faceDepthSignatureData = Data()
         }
         self.syncStatusRaw = syncStatus.rawValue
+        self.idDocumentTypeRaw = idDocumentType?.rawValue ?? ""
+        self.idDocumentNumber = idDocumentNumber
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -101,6 +109,21 @@ final class Employee {
 
     var isEnrolled: Bool {
         !faceEmbeddings.isEmpty
+    }
+
+    var idDocumentType: IdDocumentType? {
+        get {
+            guard !idDocumentTypeRaw.isEmpty else { return nil }
+            return IdDocumentType(rawValue: idDocumentTypeRaw)
+        }
+        set {
+            idDocumentTypeRaw = newValue?.rawValue ?? ""
+            updatedAt = Date()
+        }
+    }
+
+    var hasIdDocumentPhoto: Bool {
+        IdDocumentPhotoStore.load(employeeId: id) != nil
     }
 
     var faceDepthSignature: FaceDepthSignature? {

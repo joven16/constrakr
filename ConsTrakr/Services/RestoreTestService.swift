@@ -52,6 +52,7 @@ enum RestoreTestService {
         let employees = try context.fetch(FetchDescriptor<Employee>())
         for employee in employees {
             EnrollmentPhotoStore.delete(employeeId: employee.id)
+            IdDocumentPhotoStore.delete(employeeId: employee.id)
         }
 
         for record in try context.fetch(FetchDescriptor<Attendance>()) {
@@ -63,12 +64,16 @@ enum RestoreTestService {
         for entity in try context.fetch(FetchDescriptor<FaceEnrollmentPhotoEntity>()) {
             context.delete(entity)
         }
+        for entity in try context.fetch(FetchDescriptor<EmployeeIdDocumentEntity>()) {
+            context.delete(entity)
+        }
         for employee in employees {
             context.delete(employee)
         }
 
         AttendancePhotoStore.deleteAll()
         EnrollmentPhotoStore.deleteAll()
+        IdDocumentPhotoStore.deleteAll()
         try context.save()
 
         NotificationCenter.default.post(name: AppConstants.Notifications.attendanceHistoryDidClear, object: nil)

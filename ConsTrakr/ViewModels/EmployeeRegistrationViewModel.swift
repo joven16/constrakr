@@ -13,12 +13,14 @@ import SwiftData
 
 enum RegistrationStep: Int, CaseIterable {
     case details = 0
-    case faceScan = 1
-    case done = 2
+    case idDocument = 1
+    case faceScan = 2
+    case done = 3
 
     var title: String {
         switch self {
         case .details: return "Details"
+        case .idDocument: return "Scan ID"
         case .faceScan: return "Face Scan"
         case .done: return "Done"
         }
@@ -39,6 +41,11 @@ final class EmployeeRegistrationViewModel {
     var lastName = ""
     var department = ""
     var assignedSiteId: UUID?
+
+    var selectedIdType: IdDocumentType = .philsysNationalId
+    var idDocumentNumber = ""
+    private(set) var idDocumentImage: UIImage?
+    var showDocumentScanner = false
 
     private(set) var step: RegistrationStep = .details
     private(set) var currentPose: FacePose = .center
@@ -141,9 +148,34 @@ final class EmployeeRegistrationViewModel {
         cameraManager.stop()
     }
 
-    func goToFaceScanStep() {
+    var isIdDocumentStepValid: Bool {
+        idDocumentImage != nil
+    }
+
+    func goToIdDocumentStep() {
         guard isFormValid else {
             errorMessage = "Fill in employee details before continuing."
+            return
+        }
+        guard !didSave else { return }
+        step = .idDocument
+        stopCamera()
+    }
+
+    func skipIdDocumentStep() {
+        guard !didSave else { return }
+        idDocumentImage = nil
+        idDocumentNumber = ""
+        step = .faceScan
+        startEnrollment()
+        if !cameraManager.isRunning {
+            Task { await startCamera() }
+        }
+    }
+
+    func goToFaceScanFromIdStep() {
+        guard isIdDocumentStepValid else {
+            errorMessage = "Scan the government ID or tap Skip to continue without one."
             return
         }
         guard !didSave else { return }
@@ -154,9 +186,34 @@ final class EmployeeRegistrationViewModel {
         }
     }
 
-    func goBackToDetails() {
+    func goBackToDetailsFromIdStep() {
         guard !didSave, !isSaving else { return }
-        resetEnrollment(keepStatus: false)
+        step = .details
+        stopCamera()
+    }
+
+    func handleIdDocumentCapture(_ image: UIImage) {
+        idDocumentImage = image
+        showDocumentScanner = false
+    }
+
+    func retakeIdDocument() {
+        idDocumentImage = nil
+        showDocumentScanner = true
+    }
+
+    func goToFaceScanStep() {
+        goToIdDocumentStep()
+    }
+
+    func goBackToDetails() {
+        if step == .faceScan {
+            resetEnrollment(keepStatus: false)
+            step = .idDocument
+            stopCamera()
+            return
+        }
+        guard !didSave, !isSaving else { return }
         step = .details
         primaryInstruction = "Enter employee details to continue."
         stopCamera()
@@ -217,7 +274,10 @@ final class EmployeeRegistrationViewModel {
                 assignedSiteId: assignedSiteId,
                 embeddings: embeddings,
                 faceDepthSignature: capturedDepthSignature,
-                enrollmentPhotos: capturedPhotos
+                enrollmentPhotos: capturedPhotos,
+                idDocumentType: idDocumentImage != nil ? selectedIdType : nil,
+                idDocumentNumber: idDocumentNumber,
+                idDocumentImage: idDocumentImage
             )
             didSave = true
             isEnrolling = false
@@ -251,6 +311,10 @@ final class EmployeeRegistrationViewModel {
         lastName = ""
         department = ""
         assignedSiteId = JobSiteStore.defaultSiteId
+        selectedIdType = .philsysNationalId
+        idDocumentNumber = ""
+        idDocumentImage = nil
+        showDocumentScanner = false
         capturedEmbeddings.removeAll()
         capturedPhotos.removeAll()
         capturedDepthSignature = nil

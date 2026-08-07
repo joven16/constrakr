@@ -15,7 +15,8 @@ enum DataController {
             Employee.self,
             Attendance.self,
             FaceEmbeddingEntity.self,
-            FaceEnrollmentPhotoEntity.self
+            FaceEnrollmentPhotoEntity.self,
+            EmployeeIdDocumentEntity.self
         ])
         let configuration = ModelConfiguration(
             schema: schema,

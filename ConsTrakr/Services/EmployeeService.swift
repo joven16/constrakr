@@ -8,6 +8,7 @@
 
 import Foundation
 import SwiftData
+import UIKit
 
 @MainActor
 final class EmployeeService {
@@ -38,7 +39,10 @@ final class EmployeeService {
         assignedSiteId: UUID? = nil,
         embeddings: [FaceEmbedding],
         faceDepthSignature: FaceDepthSignature? = nil,
-        enrollmentPhotos: [FacePose: Data] = [:]
+        enrollmentPhotos: [FacePose: Data] = [:],
+        idDocumentType: IdDocumentType? = nil,
+        idDocumentNumber: String = "",
+        idDocumentImage: UIImage? = nil
     ) throws -> Employee {
         let code = employeeCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,6 +77,8 @@ final class EmployeeService {
             assignedSiteId: assignedSiteId,
             faceEmbeddings: embeddings,
             faceDepthSignature: faceDepthSignature,
+            idDocumentType: idDocumentType,
+            idDocumentNumber: idDocumentNumber.trimmingCharacters(in: .whitespacesAndNewlines),
             syncStatus: .pending
         )
         let siteFields = JobSiteStore.syncFields(for: assignedSiteId)
@@ -115,6 +121,16 @@ final class EmployeeService {
         }
         try EnrollmentPhotoStore.saveAll(employeeId: employee.id, photos: enrollmentPhotos)
 
+        if let idDocumentType, let idDocumentImage {
+            try IdDocumentPhotoStore.saveUIImage(idDocumentImage, employeeId: employee.id)
+            let idDocRepo = EmployeeIdDocumentRepository(context: context)
+            try idDocRepo.ensureEntityForEmployee(
+                employee,
+                idType: idDocumentType,
+                idNumber: idDocumentNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+
         return employee
     }
 
@@ -129,9 +145,12 @@ final class EmployeeService {
 
     func delete(_ employee: Employee) throws {
         EnrollmentPhotoStore.delete(employeeId: employee.id)
+        IdDocumentPhotoStore.delete(employeeId: employee.id)
         try embeddingRepository.delete(forEmployeeLocalId: employee.id)
         let photoRepository = FaceEnrollmentPhotoRepository(context: context)
         try photoRepository.delete(forEmployeeLocalId: employee.id)
+        let idDocRepository = EmployeeIdDocumentRepository(context: context)
+        try idDocRepository.delete(forEmployeeLocalId: employee.id)
         try repository.delete(employee)
     }
 

@@ -33,7 +33,9 @@ enum EmployeeChildSyncPreparer {
 
         let embRepo = FaceEmbeddingRepository(context: context)
         let photoRepo = FaceEnrollmentPhotoRepository(context: context)
+        let idDocRepo = EmployeeIdDocumentRepository(context: context)
         let photosOnDisk = !EnrollmentPhotoStore.loadAll(employeeId: employee.id).isEmpty
+        let hasIdDocument = IdDocumentPhotoStore.load(employeeId: employee.id) != nil
 
         if employee.isEnrolled {
             try embRepo.ensureEntitiesForEmployee(employee)
@@ -41,6 +43,13 @@ enum EmployeeChildSyncPreparer {
         // Photos live on disk separately — upload even if embedding decrypt fails locally.
         if employee.isEnrolled || photosOnDisk {
             try photoRepo.ensureEntitiesForEmployee(employee)
+        }
+        if hasIdDocument, let idType = employee.idDocumentType {
+            try idDocRepo.ensureEntityForEmployee(
+                employee,
+                idType: idType,
+                idNumber: employee.idDocumentNumber
+            )
         }
 
         for emb in try embRepo.fetch(forEmployeeLocalId: employee.id) {
@@ -59,6 +68,11 @@ enum EmployeeChildSyncPreparer {
             try photoRepo.update(photo, persist: false)
         }
 
+        if let idDoc = try idDocRepo.fetch(forEmployeeLocalId: employee.id) {
+            idDoc.employeeServerId = serverId
+            try idDocRepo.update(idDoc, persist: false)
+        }
+
         if persist {
             try context.save()
         }
@@ -70,6 +84,10 @@ enum EmployeeChildSyncPreparer {
 
     static func shouldUploadPhotos(for employee: Employee) -> Bool {
         employee.serverId != nil && hasEnrollmentPhotosOnDisk(employee)
+    }
+
+    static func shouldUploadIdDocument(for employee: Employee) -> Bool {
+        employee.serverId != nil && IdDocumentPhotoStore.load(employeeId: employee.id) != nil
     }
 
     static func shouldUploadEmbeddings(for employee: Employee) -> Bool {

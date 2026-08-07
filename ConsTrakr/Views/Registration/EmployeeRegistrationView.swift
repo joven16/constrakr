@@ -19,6 +19,8 @@ struct EmployeeRegistrationView: View {
             switch viewModel.step {
             case .details:
                 detailsStep
+            case .idDocument:
+                idDocumentStep
             case .faceScan, .done:
                 faceScanStep
             }
@@ -85,19 +87,72 @@ struct EmployeeRegistrationView: View {
 
             Section {
                 HStack {
-                    Label("Face Scan", systemImage: "faceid")
+                    Label("Scan ID", systemImage: "doc.text.viewfinder")
                     Spacer()
                     Text("Next")
                         .foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Step 2 captures a live face check, optional 3D depth, and five angles for offline recognition.")
+                Text("Step 2 captures a government ID photo. Step 3 is the live face enrollment.")
             }
         }
         .scrollContentBackground(.hidden)
     }
 
-    // MARK: - Step 2: Face scan (fixed layout, no scroll)
+    // MARK: - Step 2: Government ID
+
+    private var idDocumentStep: some View {
+        Form {
+            Section {
+                Picker("ID type", selection: $viewModel.selectedIdType) {
+                    ForEach(IdDocumentType.allCases) { type in
+                        Text(type.displayName).tag(type)
+                    }
+                }
+
+                TextField("ID number (optional)", text: $viewModel.idDocumentNumber)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+            } header: {
+                Text("Government ID")
+            } footer: {
+                Text("Choose the ID type and scan the physical card. The number is optional in v1.")
+            }
+
+            Section {
+                if let image = viewModel.idDocumentImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+
+                    Button("Retake scan") {
+                        viewModel.retakeIdDocument()
+                    }
+                } else {
+                    Button {
+                        viewModel.showDocumentScanner = true
+                    } label: {
+                        Label("Scan ID", systemImage: "doc.text.viewfinder")
+                    }
+                }
+            } header: {
+                Text("ID photo")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .fullScreenCover(isPresented: $viewModel.showDocumentScanner) {
+            DocumentCameraView(
+                onCapture: { viewModel.handleIdDocumentCapture($0) },
+                onCancel: { viewModel.showDocumentScanner = false }
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    // MARK: - Step 3: Face scan (fixed layout, no scroll)
 
     private var faceScanStep: some View {
         GeometryReader { geo in
@@ -242,10 +297,28 @@ struct EmployeeRegistrationView: View {
         case .details:
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Continue") {
-                    viewModel.goToFaceScanStep()
+                    viewModel.goToIdDocumentStep()
                 }
                 .fontWeight(.semibold)
                 .disabled(!viewModel.isFormValid)
+            }
+        case .idDocument:
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Back") {
+                    viewModel.goBackToDetailsFromIdStep()
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 12) {
+                    Button("Skip") {
+                        viewModel.skipIdDocumentStep()
+                    }
+                    Button("Continue") {
+                        viewModel.goToFaceScanFromIdStep()
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(!viewModel.isIdDocumentStepValid)
+                }
             }
         case .faceScan, .done:
             ToolbarItem(placement: .topBarLeading) {
@@ -266,6 +339,7 @@ struct EmployeeRegistrationView: View {
     private var navigationTitle: String {
         switch viewModel.step {
         case .details: return "New Employee"
+        case .idDocument: return "Scan ID"
         case .faceScan, .done: return "Face Setup"
         }
     }

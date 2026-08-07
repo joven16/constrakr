@@ -433,6 +433,45 @@ actor APIService {
         return FaceEnrollmentPhotoUpsertResponse(serverId: parsed.serverId, localId: parsed.localId)
     }
 
+    // MARK: - Employee ID documents
+
+    func getEmployeeIdDocuments(
+        employeeServerId: String? = nil,
+        includeMedia: Bool = false
+    ) async throws -> [EmployeeIdDocumentDTO] {
+        try rejectIfUnconfigured()
+        var request = try makeRequest(
+            for: .getEmployeeIdDocuments(employeeServerId: employeeServerId, includeMedia: includeMedia)
+        )
+        if includeMedia { request.timeoutInterval = 300 }
+        if isDemoHost { return [] }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        return try APIDecoding.decodeFlexibleList(
+            EmployeeIdDocumentDTO.self,
+            from: data,
+            arrayKeys: ["employee_id_documents", "documents", "data", "results"]
+        )
+    }
+
+    func postEmployeeIdDocument(_ dto: EmployeeIdDocumentDTO) async throws -> EmployeeIdDocumentUpsertResponse {
+        try rejectIfUnconfigured()
+        var request = try makeRequest(for: .postEmployeeIdDocument)
+        request.httpBody = try JSONEncoder.api.encode(dto)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if isDemoHost {
+            return EmployeeIdDocumentUpsertResponse(
+                employeeServerId: dto.employeeServerId ?? "srv-id-\(dto.employeeLocalId.uuidString)",
+                employeeLocalId: dto.employeeLocalId
+            )
+        }
+
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        return try JSONDecoder.api.decode(EmployeeIdDocumentUpsertResponse.self, from: data)
+    }
+
     // MARK: - Attendance
 
     func getAttendance(

@@ -20,6 +20,8 @@ enum APIEndpoint {
     // Enrollment face JPEGs (one row per pose)
     case getFaceEnrollmentPhotos(employeeServerId: String?, includeMedia: Bool)
     case postFaceEnrollmentPhoto
+    case getEmployeeIdDocuments(employeeServerId: String?, includeMedia: Bool)
+    case postEmployeeIdDocument
     // Attendance
     case getAttendance(employeeServerId: String?, startDate: Date?, endDate: Date?, includeMedia: Bool)
     case postAttendance
@@ -44,6 +46,8 @@ enum APIEndpoint {
             return "\(Self.root)/face-embeddings"
         case .getFaceEnrollmentPhotos, .postFaceEnrollmentPhoto:
             return "\(Self.root)/face-enrollment-photos"
+        case .getEmployeeIdDocuments, .postEmployeeIdDocument:
+            return "\(Self.root)/employee-id-documents"
         case .getAttendance, .postAttendance:
             return "\(Self.root)/attendance"
         case .getJobSites, .postJobSite:
@@ -63,6 +67,15 @@ enum APIEndpoint {
             guard let employeeServerId else { return [] }
             return [URLQueryItem(name: "employee_server_id", value: employeeServerId)]
         case .getFaceEnrollmentPhotos(let employeeServerId, let includeMedia):
+            var items: [URLQueryItem] = []
+            if let employeeServerId {
+                items.append(URLQueryItem(name: "employee_server_id", value: employeeServerId))
+            }
+            if includeMedia {
+                items.append(URLQueryItem(name: "include_media", value: "1"))
+            }
+            return items
+        case .getEmployeeIdDocuments(let employeeServerId, let includeMedia):
             var items: [URLQueryItem] = []
             if let employeeServerId {
                 items.append(URLQueryItem(name: "employee_server_id", value: employeeServerId))
@@ -109,13 +122,13 @@ enum APIEndpoint {
 
     var method: String {
         switch self {
-        case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postAttendance, .postJobSite, .adminLogin:
+        case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postEmployeeIdDocument, .postAttendance, .postJobSite, .adminLogin:
             return "POST"
         case .putEmployee, .putJobSite:
             return "PUT"
         case .deleteEmployee, .deleteJobSite:
             return "DELETE"
-        case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getAttendance, .getJobSites, .healthCheck:
+        case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getEmployeeIdDocuments, .getAttendance, .getJobSites, .healthCheck:
             return "GET"
         }
     }
@@ -543,6 +556,68 @@ struct FaceEnrollmentPhotoUpsertResponse: Decodable {
             )
         }
         localId = try container.decode(UUID.self, forKey: .localId)
+    }
+}
+
+struct EmployeeIdDocumentDTO: Codable {
+    let employeeServerId: String?
+    let employeeLocalId: UUID
+    let idType: String
+    let idNumber: String?
+    let jpegBase64: String?
+    let hasJpegData: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case employeeServerId = "employee_server_id"
+        case employeeLocalId = "employee_local_id"
+        case idType = "id_type"
+        case idNumber = "id_number"
+        case jpegBase64 = "jpeg_base64"
+        case hasJpegData = "has_jpeg_data"
+    }
+
+    init(
+        employeeServerId: String?,
+        employeeLocalId: UUID,
+        idType: String,
+        idNumber: String?,
+        jpegBase64: String?
+    ) {
+        self.employeeServerId = employeeServerId
+        self.employeeLocalId = employeeLocalId
+        self.idType = idType
+        self.idNumber = idNumber
+        self.jpegBase64 = jpegBase64
+        self.hasJpegData = jpegBase64 != nil
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        employeeServerId = try container.decodeIfPresent(String.self, forKey: .employeeServerId)
+        employeeLocalId = try container.decode(UUID.self, forKey: .employeeLocalId)
+        idType = try container.decode(String.self, forKey: .idType)
+        idNumber = try container.decodeIfPresent(String.self, forKey: .idNumber)
+        jpegBase64 = try container.decodeIfPresent(String.self, forKey: .jpegBase64)
+        hasJpegData = try container.decodeIfPresent(Bool.self, forKey: .hasJpegData)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(employeeServerId, forKey: .employeeServerId)
+        try container.encode(employeeLocalId, forKey: .employeeLocalId)
+        try container.encode(idType, forKey: .idType)
+        try container.encodeIfPresent(idNumber, forKey: .idNumber)
+        try container.encodeIfPresent(jpegBase64, forKey: .jpegBase64)
+    }
+}
+
+struct EmployeeIdDocumentUpsertResponse: Decodable {
+    let employeeServerId: String
+    let employeeLocalId: UUID
+
+    enum CodingKeys: String, CodingKey {
+        case employeeServerId = "employee_server_id"
+        case employeeLocalId = "employee_local_id"
     }
 }
 

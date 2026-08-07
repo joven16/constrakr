@@ -77,6 +77,7 @@ final class SyncService {
         }
         _ = try FaceEmbeddingRepository(context: context).repairStuckSync()
         _ = try FaceEnrollmentPhotoRepository(context: context).repairStuckSync()
+        _ = try EmployeeIdDocumentRepository(context: context).repairStuckSync()
         try await reconcileMissingRemotePhotos(context: context)
 
         guard try hasPendingPushWork(context: context) else {
@@ -96,6 +97,7 @@ final class SyncService {
         try await pushChangedJobSiteAssignments(context: context)
         summary = try await uploadPendingEmbeddings(context: context, summary: summary)
         summary = try await uploadPendingEnrollmentPhotos(context: context, summary: summary)
+        summary = try await uploadPendingIdDocuments(context: context, summary: summary)
         try await uploadPendingAttendance(context: context)
 
         let verify = try await verifyEmployeesOnServer(context: context)
@@ -136,9 +138,13 @@ final class SyncService {
         var photosUploaded = 0
         var photosFailed = 0
         var photosSkippedNoFile = 0
+        var idDocumentsUploaded = 0
+        var idDocumentsFailed = 0
+        var idDocumentsSkippedNoFile = 0
         var employeesUploadFailed = 0
         var lastUploadError: String?
         var lastPhotoUploadError: String?
+        var lastIdDocumentUploadError: String?
 
         var successMessage: String {
             if employeesPosted == 0 && employeesLinked == 0 {
@@ -208,10 +214,12 @@ final class SyncService {
         let employees = EmployeeRepository(context: context)
         let embeddings = FaceEmbeddingRepository(context: context)
         let photos = FaceEnrollmentPhotoRepository(context: context)
+        let idDocuments = EmployeeIdDocumentRepository(context: context)
         let attendance = AttendanceRepository(context: context)
         return try employees.pendingCount() > 0
             || embeddings.pendingCount() > 0
             || photos.pendingCount() > 0
+            || idDocuments.pendingCount() > 0
             || attendance.pendingCount() > 0
     }
 
@@ -567,6 +575,63 @@ final class SyncService {
         return summary
     }
 
+    private func uploadPendingIdDocuments(
+        context: ModelContext,
+        summary: PushSyncSummary
+    ) async throws -> PushSyncSummary {
+        var summary = summary
+        let idDocRepo = EmployeeIdDocumentRepository(context: context)
+        let empRepo = EmployeeRepository(context: context)
+
+        for employee in try empRepo.fetchAll() where EmployeeChildSyncPreparer.shouldUploadIdDocument(for: employee) {
+            try EmployeeChildSyncPreparer.prepare(for: employee, context: context, persist: false)
+        }
+
+        let pending = try idDocRepo.fetchPendingSync()
+        guard !pending.isEmpty else { return summary }
+
+        try await uploadInParallel(items: pending, maxConcurrent: uploadConcurrency) { entity in
+            guard let jpeg = IdDocumentPhotoStore.load(employeeId: entity.employeeLocalId) else {
+                entity.syncStatus = .failed
+                try? idDocRepo.update(entity, persist: false)
+                summary.idDocumentsSkippedNoFile += 1
+                summary.lastIdDocumentUploadError = "ID document JPEG missing on device."
+                return
+            }
+
+            guard let parent = try empRepo.fetch(id: entity.employeeLocalId),
+                  let serverId = APIDecoding.normalizedServerId(parent.serverId) else {
+                return
+            }
+
+            entity.employeeServerId = serverId
+            entity.syncStatus = .syncing
+            try idDocRepo.update(entity, persist: false)
+
+            let dto = EmployeeIdDocumentDTO(
+                employeeServerId: serverId,
+                employeeLocalId: entity.employeeLocalId,
+                idType: entity.idTypeRaw,
+                idNumber: entity.idNumber.isEmpty ? nil : entity.idNumber,
+                jpegBase64: jpeg.base64EncodedString()
+            )
+            do {
+                _ = try await self.api.postEmployeeIdDocument(dto)
+                entity.syncStatus = .synced
+                try idDocRepo.update(entity, persist: false)
+                summary.idDocumentsUploaded += 1
+            } catch {
+                entity.syncStatus = .failed
+                try? idDocRepo.update(entity, persist: false)
+                summary.idDocumentsFailed += 1
+                summary.lastIdDocumentUploadError = error.localizedDescription
+            }
+        }
+
+        try persist(context)
+        return summary
+    }
+
     private func uploadPendingAttendance(context: ModelContext) async throws {
         let attRepo = AttendanceRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
@@ -838,6 +903,19 @@ final class SyncService {
             try photoRepo.upsertFromRemote(dto, employeeLocalId: localEmployeeId)
         }
 
+        let idDocRepo = EmployeeIdDocumentRepository(context: context)
+        for dto in try await api.getEmployeeIdDocuments(includeMedia: true) {
+            guard let serverId = dto.employeeServerId,
+                  importedServerIds.contains(serverId),
+                  let localEmployeeId = localByServerId[serverId] else { continue }
+            try idDocRepo.upsertFromRemote(dto, employeeLocalId: localEmployeeId)
+            if let employee = try empRepo.fetch(id: localEmployeeId) {
+                employee.idDocumentType = IdDocumentType(rawValue: dto.idType)
+                employee.idDocumentNumber = dto.idNumber ?? ""
+                try empRepo.update(employee, persist: false)
+            }
+        }
+
         try persist(context)
         cachedRemoteEmployeeIndex = nil
         cachedRemoteEmployeeIndexAt = nil
@@ -855,6 +933,7 @@ final class SyncService {
         let empRepo = EmployeeRepository(context: context)
         let embRepo = FaceEmbeddingRepository(context: context)
         let photoRepo = FaceEnrollmentPhotoRepository(context: context)
+        let idDocRepo = EmployeeIdDocumentRepository(context: context)
 
         _ = try await syncJobSites(context: context)
 
@@ -920,6 +999,24 @@ final class SyncService {
                !jpegBase64.isEmpty,
                Data(base64Encoded: jpegBase64) != nil {
                 photoJPEGCount += 1
+            }
+        }
+
+        let remoteIdDocuments = try await api.getEmployeeIdDocuments(includeMedia: true)
+        var idDocumentCount = 0
+        for dto in remoteIdDocuments {
+            guard let localEmployeeId = try resolveRestoreEmployeeId(
+                dtoEmployeeServerId: dto.employeeServerId,
+                dtoEmployeeLocalId: dto.employeeLocalId,
+                localIdByServerId: localIdByServerId,
+                empRepo: empRepo
+            ) else { continue }
+            try idDocRepo.upsertFromRemote(dto, employeeLocalId: localEmployeeId)
+            idDocumentCount += 1
+            if let employee = try empRepo.fetch(id: localEmployeeId) {
+                employee.idDocumentType = IdDocumentType(rawValue: dto.idType)
+                employee.idDocumentNumber = dto.idNumber ?? ""
+                try empRepo.update(employee, persist: false)
             }
         }
 

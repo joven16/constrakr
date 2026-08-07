@@ -334,6 +334,24 @@ struct EmployeeDetailView: View {
                 }
             }
 
+            if employee.hasIdDocumentPhoto, let idType = employee.idDocumentType {
+                Section("Government ID") {
+                    LabeledContent("Type", value: idType.displayName)
+                    if !employee.idDocumentNumber.isEmpty {
+                        LabeledContent("Number", value: employee.idDocumentNumber)
+                    }
+                    if let data = IdDocumentPhotoStore.load(employeeId: employee.id),
+                       let image = UIImage(data: data) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 200)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                    }
+                }
+            }
+
             Section("Registered Faces") {
                 if enrollmentPhotos.isEmpty {
                     Text("No registration photos available. Re-register this employee to capture pose images.")
