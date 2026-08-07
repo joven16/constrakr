@@ -64,6 +64,7 @@ final class SyncService {
         summary.jobSitesSynced = try await syncJobSites()
         await processPendingEmployeeDeletions()
         summary.employeesImportedFromIMS = try await importMissingRemoteEmployees(context: context)
+        _ = try await mergeRemoteEmployeeProfileUpdates(context: context)
 
         do {
             try EmployeeChildSyncPreparer.prepareAll(context: context, persist: true)
@@ -661,6 +662,41 @@ final class SyncService {
         }
 
         return pushed
+    }
+
+    /// Applies IMS profile edits (name, department, job site) when the server row is newer.
+    private func mergeRemoteEmployeeProfileUpdates(context: ModelContext) async throws -> Int {
+        let empRepo = EmployeeRepository(context: context)
+        let remoteEmployees = try await api.getEmployees()
+        var merged = 0
+
+        for dto in remoteEmployees {
+            guard let serverId = APIDecoding.normalizedServerId(dto.serverId),
+                  let local = try empRepo.fetch(serverId: serverId),
+                  local.syncStatus == .synced,
+                  let remoteUpdated = dto.updatedAt,
+                  remoteUpdated > local.updatedAt
+            else { continue }
+
+            JobSiteStore.ensureFromEmployeeAssignment(
+                id: dto.assignedSiteId,
+                name: dto.assignedSiteName,
+                location: dto.assignedSiteLocation
+            )
+            local.firstName = dto.firstName
+            local.lastName = dto.lastName
+            local.department = dto.department
+            local.assignedSiteId = dto.assignedSiteId
+            local.updatedAt = remoteUpdated
+            try empRepo.update(local, persist: false)
+            merged += 1
+        }
+
+        if merged > 0 {
+            try persist(context)
+            NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
+        }
+        return merged
     }
 
     /// Pulls employees reactivated on IMS (Restore to app) that are missing on this device.
