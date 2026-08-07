@@ -206,11 +206,6 @@ final class EmployeeRegistrationViewModel {
         showDocumentScanner = false
     }
 
-    func rotateIdDocument(clockwise: Bool) {
-        guard let image = idDocumentImage else { return }
-        idDocumentImage = image.rotatedQuarterTurn(clockwise: clockwise)
-    }
-
     func retakeIdDocument() {
         idDocumentImage = nil
         idDocumentCapturedAt = nil

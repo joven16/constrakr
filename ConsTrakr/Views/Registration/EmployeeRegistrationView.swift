@@ -143,20 +143,6 @@ struct EmployeeRegistrationView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
 
-                    HStack(spacing: 16) {
-                        Button {
-                            viewModel.rotateIdDocument(clockwise: false)
-                        } label: {
-                            Label("Rotate left", systemImage: "rotate.left")
-                        }
-
-                        Button {
-                            viewModel.rotateIdDocument(clockwise: true)
-                        } label: {
-                            Label("Rotate right", systemImage: "rotate.right")
-                        }
-                    }
-
                     if let capturedAt = viewModel.idDocumentCapturedAt {
                         LabeledContent("Captured") {
                             Text(capturedAt.formatted(date: .abbreviated, time: .shortened))
@@ -171,18 +157,18 @@ struct EmployeeRegistrationView: View {
                     Button {
                         viewModel.showDocumentScanner = true
                     } label: {
-                        Label("Take ID photo", systemImage: "camera.fill")
+                        Label("Scan ID", systemImage: "doc.text.viewfinder")
                     }
                 }
             } header: {
                 Text("ID photo")
             } footer: {
-                Text("Use the rear camera and tap Capture when ready. You can rotate the photo after.")
+                Text("In the scanner, tap Manual (top of screen) so capture waits for the shutter button. Auto mode detects the ID and snaps immediately.")
             }
         }
         .scrollContentBackground(.hidden)
         .fullScreenCover(isPresented: $viewModel.showDocumentScanner) {
-            IdDocumentCameraView(
+            DocumentCameraView(
                 onCapture: { viewModel.handleIdDocumentCapture($0) },
                 onCancel: { viewModel.showDocumentScanner = false }
             )
