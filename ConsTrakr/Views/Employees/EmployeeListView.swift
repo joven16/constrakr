@@ -245,10 +245,20 @@ private struct EmployeeRow: View {
     }
 
     private var subtitle: String {
-        if let cloudItem, !syncIndicator.isUpToDate {
-            return "\(employee.employeeCode) · \(cloudItem.imsDateLine)"
+        siteLabel
+    }
+
+    private var siteLabel: String {
+        if let id = employee.assignedSiteId, let site = JobSiteStore.site(id: id) {
+            return site.displayTitle
         }
-        return "\(employee.employeeCode) · \(employee.department)"
+        if !employee.assignedSiteName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return employee.assignedSiteName
+        }
+        if let defaultSite = JobSiteStore.defaultSite {
+            return "\(defaultSite.displayTitle) (default)"
+        }
+        return "No job site assigned"
     }
 
     @ViewBuilder
@@ -308,6 +318,12 @@ struct EmployeeDetailView: View {
         if local == .failed { return "Sync failed — pull down to retry" }
         if local == .syncing { return "Syncing…" }
         if cloudStatus == .needsUpload { return "Not on server — pull down to upload" }
+        if cloudStatus == .notChecked {
+            if cloudItem?.checkedWhileOffline == true {
+                return "Offline — pull down when online"
+            }
+            return "Pull down to refresh sync status"
+        }
         if local == .pending { return "Pending upload" }
         return "Pull down to sync"
     }

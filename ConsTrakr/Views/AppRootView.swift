@@ -10,6 +10,7 @@ import SwiftData
 
 struct AppRootView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(AppConstants.UserDefaultsKeys.appTheme) private var appThemeRaw = AppTheme.system.rawValue
 
     let modelContainer: ModelContainer
     @Bindable var syncQueue: SyncQueue
@@ -19,6 +20,7 @@ struct AppRootView: View {
         MainTabView()
             .environment(syncQueue)
             .environment(tabRouter)
+            .preferredColorScheme(AppTheme(rawValue: appThemeRaw)?.colorScheme)
             .onAppear {
                 let context = modelContainer.mainContext
                 DataController.seedMockDataIfNeeded(context: context)

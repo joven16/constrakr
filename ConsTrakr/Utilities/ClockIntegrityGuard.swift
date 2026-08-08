@@ -2,7 +2,7 @@
 //  ClockIntegrityGuard.swift
 //  ConsTrakr
 //
-//  Detects manual device clock changes and compares against IMS server time when online.
+//  Detects manual device clock changes and compares against server time when online.
 //
 
 import Foundation
@@ -39,18 +39,28 @@ final class ClockIntegrityGuard {
 
     private init() {}
 
+    /// Refreshes the offline jump baseline whenever the scanner opens.
     func bootstrapIfNeeded() {
-        if loadCheckpoint() == nil {
-            recordCheckpoint()
-        }
+        recordCheckpoint()
     }
 
-    /// Call before recording attendance. Skips server drift check when offline.
+    /// Call before recording attendance. Prefers server time when online.
     func verifyBeforePunch() async throws {
-        try verifyNoClockJump()
         if NetworkMonitor.shared.isConnected {
-            try await verifyOnlineDrift()
+            do {
+                try await verifyOnlineDrift()
+                // Server agrees with device — iOS may have auto-corrected since the last checkpoint.
+                recordCheckpoint()
+                return
+            } catch let error as ClockIntegrityError {
+                if case .deviceClockDrift = error {
+                    throw error
+                }
+            } catch {
+                // Unreachable server or missing server_time — fall back to offline jump check.
+            }
         }
+        try verifyNoClockJump()
     }
 
     /// Best timestamp for a new punch — server-adjusted when online, device time offline.
@@ -83,6 +93,11 @@ final class ClockIntegrityGuard {
         }
 
         let wallDelta = nowWall - last.wallTime
+        if wallDelta > AppConstants.clockCheckpointMaxAgeSeconds {
+            recordCheckpoint()
+            return
+        }
+
         let uptimeDelta = nowUptime - last.uptime
         let drift = abs(wallDelta - uptimeDelta)
 

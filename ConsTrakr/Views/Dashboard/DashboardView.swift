@@ -41,12 +41,10 @@ struct DashboardView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    DashboardStatusIcons(
-                        isOnline: viewModel.isOnline,
-                        pendingSyncCount: viewModel.pendingSyncCount
-                    ) {
-                        tabRouter.selectedTab = .employees
-                    }
+                    Image(systemName: viewModel.isOnline ? "wifi" : "wifi.slash")
+                        .foregroundStyle(viewModel.isOnline ? .green : .secondary)
+                        .font(.subheadline)
+                        .accessibilityLabel(viewModel.isOnline ? "Online" : "Offline")
                 }
             }
             .onAppear {
@@ -62,7 +60,7 @@ struct DashboardView: View {
                 viewModel.refresh()
             }
             .refreshable {
-                viewModel.refresh()
+                await viewModel.syncNow()
             }
         }
     }
@@ -83,7 +81,7 @@ struct DashboardView: View {
                     if totals.assigned > 0 {
                         Text("\(percent)%")
                             .font(.system(.title, design: .rounded).bold())
-                        Text("\(totals.present)/\(totals.assigned)")
+                        Text("\(totals.completionFractionLine)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -104,7 +102,7 @@ struct DashboardView: View {
 
             if totals.assigned > 0 {
                 HStack(spacing: 8) {
-                    heroChip(title: "Punches", value: "\(totals.punchCount)", tint: .blue)
+                    heroChip(title: "Today", value: totals.inOutLine, tint: .blue)
                     heroChip(title: "Absent", value: "\(totals.absent)", tint: totals.absent > 0 ? .red : .secondary)
                     heroChip(title: "Incomplete", value: "\(totals.incomplete)", tint: totals.incomplete > 0 ? .orange : .secondary)
                 }
@@ -226,7 +224,7 @@ struct DashboardView: View {
                 metricTile(
                     title: "Pending sync",
                     value: "\(viewModel.pendingSyncCount)",
-                    subtitle: viewModel.isOnline ? "Tap sync icon above" : "Offline — will retry",
+                    subtitle: viewModel.isOnline ? "Pull down to sync" : "Offline — will retry",
                     tint: viewModel.pendingSyncCount > 0 ? .orange : .secondary
                 )
             }
@@ -260,39 +258,6 @@ struct DashboardView: View {
     }
 }
 
-private struct DashboardStatusIcons: View {
-    let isOnline: Bool
-    let pendingSyncCount: Int
-    let onSyncTap: () -> Void
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: isOnline ? "wifi" : "wifi.slash")
-                .foregroundStyle(isOnline ? .green : .secondary)
-                .accessibilityLabel(isOnline ? "Online" : "Offline")
-
-            Button(action: onSyncTap) {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .foregroundStyle(pendingSyncCount > 0 ? .orange : .secondary)
-                    if pendingSyncCount > 0 {
-                        Text("\(min(pendingSyncCount, 99))")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(3)
-                            .background(Color.orange, in: Circle())
-                            .offset(x: 8, y: -8)
-                            .accessibilityHidden(true)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(pendingSyncCount > 0 ? "\(pendingSyncCount) pending sync items" : "Sync up to date")
-        }
-        .font(.subheadline)
-    }
-}
-
 private struct SiteAttendanceCard: View {
     let site: DashboardViewModel.SiteAttendanceSummary
     let action: () -> Void
@@ -316,15 +281,12 @@ private struct SiteAttendanceCard: View {
                     Spacer(minLength: 8)
                     if site.assignedCount > 0 {
                         VStack(alignment: .trailing, spacing: 0) {
-                            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                                Text("\(site.presentCount)")
+                            if let percent = site.coveragePercent {
+                                Text("\(percent)%")
                                     .font(.title2.bold())
-                                    .foregroundStyle(.indigo)
-                                Text("/\(site.assignedCount)")
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(coverageColor(for: site.coverageLevel))
                             }
-                            Text("punched")
+                            Text(site.inOutLine)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -352,7 +314,7 @@ private struct SiteAttendanceCard: View {
                             .font(.caption.weight(.medium))
                             .foregroundStyle(coverageColor(for: site.coverageLevel))
                         Spacer()
-                        Text("\(site.punchCount) punch\(site.punchCount == 1 ? "" : "es")")
+                        Text(site.inOutLine)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -371,8 +333,8 @@ private struct SiteAttendanceCard: View {
                             }
                         }
                     }
-                } else if site.punchCount > 0 {
-                    Text("\(site.punchCount) punch\(site.punchCount == 1 ? "" : "es") today")
+                } else if site.checkInCount > 0 || site.checkOutCount > 0 {
+                    Text(site.inOutLine)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {

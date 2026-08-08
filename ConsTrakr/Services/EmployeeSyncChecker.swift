@@ -40,6 +40,8 @@ struct EmployeeSyncStatusItem: Identifiable {
     let localUpdatedAt: Date
     let imsUpdatedAt: Date?
     let checkedAt: Date
+    /// When `status` is `.notChecked`, reflects whether the last check ran offline.
+    let checkedWhileOffline: Bool
 
     var imsDateLine: String {
         switch status {
@@ -48,7 +50,10 @@ struct EmployeeSyncStatusItem: Identifiable {
         case .needsUpload:
             return "Local \(localUpdatedAt.attendanceDisplay)"
         case .notChecked:
-            return "Tap Sync or check server"
+            if checkedWhileOffline {
+                return "Offline — pull down when online"
+            }
+            return "Pull down to refresh sync status"
         }
     }
 }
@@ -109,11 +114,11 @@ enum EmployeeSyncChecker {
         guard isSignedIn, isOnline else {
             let statusNote: String?
             if !isOnline {
-                statusNote = "No internet connection. Connect to check the server."
+                statusNote = "You're offline — pull down to sync when connected."
             } else if !AdminSession.shared.isAuthenticated || !hasToken {
-                statusNote = "Sign in under Settings → Sync account before checking the server."
+                statusNote = "Sign in under Settings → Sync account, then pull down to sync."
             } else {
-                statusNote = "Could not reach the server."
+                statusNote = "Could not reach the server — pull down to try again."
             }
 
             let items = local.map { employee in
@@ -126,7 +131,8 @@ enum EmployeeSyncChecker {
                     localSyncStatus: employee.syncStatus,
                     localUpdatedAt: employee.updatedAt,
                     imsUpdatedAt: nil,
-                    checkedAt: checkedAt
+                    checkedAt: checkedAt,
+                    checkedWhileOffline: !isOnline
                 )
             }
             let needs = items.filter { $0.status == .needsUpload }.count
@@ -217,7 +223,8 @@ enum EmployeeSyncChecker {
                     localSyncStatus: employee.syncStatus,
                     localUpdatedAt: employee.updatedAt,
                     imsUpdatedAt: imsUpdatedAt,
-                    checkedAt: checkedAt
+                    checkedAt: checkedAt,
+                    checkedWhileOffline: false
                 )
             )
         }

@@ -34,14 +34,20 @@ final class DashboardViewModel {
         let siteName: String
         let locationLabel: String
         let assignedCount: Int
-        let presentCount: Int
+        let checkInCount: Int
+        let checkOutCount: Int
         let absentCount: Int
         let incompleteCount: Int
-        let punchCount: Int
+        /// In + out = 1.0, in only = 0.5, absent = 0.
+        let completionScore: Double
 
         var coveragePercent: Int? {
             guard assignedCount > 0 else { return nil }
-            return Int((Double(presentCount) * 100 / Double(assignedCount)).rounded())
+            return Int((completionScore * 100 / Double(assignedCount)).rounded())
+        }
+
+        var inOutLine: String {
+            "In (\(checkInCount)) | Out (\(checkOutCount))"
         }
 
         enum CoverageLevel {
@@ -61,14 +67,30 @@ final class DashboardViewModel {
 
     struct AttendanceTotals {
         var assigned = 0
-        var present = 0
+        var checkInCount = 0
+        var checkOutCount = 0
         var absent = 0
         var incomplete = 0
-        var punchCount = 0
+        var completionScore: Double = 0
 
         var coveragePercent: Int? {
             guard assigned > 0 else { return nil }
-            return Int((Double(present) * 100 / Double(assigned)).rounded())
+            return Int((completionScore * 100 / Double(assigned)).rounded())
+        }
+
+        var inOutLine: String {
+            "In (\(checkInCount)) | Out (\(checkOutCount))"
+        }
+
+        var completionFractionLine: String {
+            "\(Self.formatScore(completionScore))/\(assigned)"
+        }
+
+        private static func formatScore(_ score: Double) -> String {
+            if score.truncatingRemainder(dividingBy: 1) == 0 {
+                return String(Int(score))
+            }
+            return String(format: "%.1f", score)
         }
     }
 
@@ -100,9 +122,7 @@ final class DashboardViewModel {
             let todayRecords = try attendanceService.history(from: start, to: end)
 
             var punchState: [UUID: (hasIn: Bool, hasOut: Bool)] = [:]
-            var punchCountByEmployee: [UUID: Int] = [:]
             for record in todayRecords {
-                punchCountByEmployee[record.employeeId, default: 0] += 1
                 var state = punchState[record.employeeId] ?? (false, false)
                 switch record.checkType {
                 case .checkIn:
@@ -118,29 +138,39 @@ final class DashboardViewModel {
 
             for site in JobSiteStore.allSites {
                 let assigned = employees.filter { $0.assignedSiteId == site.id }
-                var presentCount = 0
+                var checkInCount = 0
+                var checkOutCount = 0
                 var absentCount = 0
                 var incompleteCount = 0
-                var punchCount = 0
+                var completionScore = 0.0
 
                 for employee in assigned {
                     let state = punchState[employee.id]
-                    if state?.hasIn == true {
-                        presentCount += 1
-                        if state?.hasOut != true {
+                    let hasIn = state?.hasIn == true
+                    let hasOut = state?.hasOut == true
+
+                    if hasIn {
+                        checkInCount += 1
+                        if hasOut {
+                            completionScore += 1.0
+                        } else {
                             incompleteCount += 1
+                            completionScore += 0.5
                         }
                     } else {
                         absentCount += 1
                     }
-                    punchCount += punchCountByEmployee[employee.id] ?? 0
+                    if hasOut {
+                        checkOutCount += 1
+                    }
                 }
 
                 totals.assigned += assigned.count
-                totals.present += presentCount
+                totals.checkInCount += checkInCount
+                totals.checkOutCount += checkOutCount
                 totals.absent += absentCount
                 totals.incomplete += incompleteCount
-                totals.punchCount += punchCount
+                totals.completionScore += completionScore
 
                 summaries.append(
                     SiteAttendanceSummary(
@@ -148,10 +178,11 @@ final class DashboardViewModel {
                         siteName: site.displayTitle,
                         locationLabel: site.locationLabel.trimmingCharacters(in: .whitespacesAndNewlines),
                         assignedCount: assigned.count,
-                        presentCount: presentCount,
+                        checkInCount: checkInCount,
+                        checkOutCount: checkOutCount,
                         absentCount: absentCount,
                         incompleteCount: incompleteCount,
-                        punchCount: punchCount
+                        completionScore: completionScore
                     )
                 )
             }
@@ -171,5 +202,10 @@ final class DashboardViewModel {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func syncNow() async {
+        await syncQueue?.syncNow(mode: .quick, scope: .all)
+        refresh()
     }
 }

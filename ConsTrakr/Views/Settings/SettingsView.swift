@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(SyncQueue.self) private var syncQueue
+    @AppStorage(AppConstants.UserDefaultsKeys.appTheme) private var appThemeRaw = AppTheme.system.rawValue
     @State private var viewModel = SettingsViewModel()
     @State private var showRestoreTestConfirmation = false
     var embedsNavigation: Bool = true
@@ -23,6 +24,7 @@ struct SettingsView: View {
 
     private var settingsForm: some View {
         Form {
+            appearanceSection
             statusSection
             syncSection
             imsAccountSection
@@ -71,6 +73,21 @@ struct SettingsView: View {
     }
 
     // MARK: - Sections
+
+    private var appearanceSection: some View {
+        Section {
+            Picker("Theme", selection: $appThemeRaw) {
+                ForEach(AppTheme.allCases) { theme in
+                    Text(theme.displayName).tag(theme.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+        } header: {
+            Text("Appearance")
+        } footer: {
+            Text("System follows your iPhone light or dark mode. Light and dark override it for this app only.")
+        }
+    }
 
     private var statusSection: some View {
         Section {
