@@ -153,6 +153,8 @@ final class SyncService {
         if scope != .employees {
             reportProgress("Uploading attendance…")
             try await uploadPendingAttendance(context: context)
+            reportProgress("Checking IMS updates…")
+            try await reconcileRemoteAttendanceVoids(context: context)
         }
 
         if summary.employeesPosted > 0
@@ -192,8 +194,43 @@ final class SyncService {
         await warmConnectionIfNeeded()
         reportProgress("Uploading punches…")
         try await uploadPendingAttendance(context: context)
+        reportProgress("Checking IMS updates…")
+        try await reconcileRemoteAttendanceVoids(context: context)
         reportProgress(nil)
         return PushSyncSummary()
+    }
+
+    /// Removes local punches voided on IMS so DTR and scanner stay aligned.
+    private func reconcileRemoteAttendanceVoids(context: ModelContext) async throws {
+        let attRepo = AttendanceRepository(context: context)
+        let since = SyncSettings.lastAttendanceVoidReconcileDate?.addingTimeInterval(-120)
+            ?? Calendar.current.date(byAdding: .day, value: -14, to: Date())
+        guard let since else { return }
+
+        let remoteRows = try await api.getAttendance(updatedSince: since)
+        guard !remoteRows.isEmpty else {
+            SyncSettings.recordAttendanceVoidReconcile()
+            return
+        }
+
+        var removed = 0
+        for dto in remoteRows where dto.isVoid {
+            let local: Attendance?
+            if let serverId = APIDecoding.normalizedServerId(dto.serverId) {
+                local = try attRepo.fetch(serverId: serverId)
+            } else {
+                local = try attRepo.fetch(localId: dto.localId)
+            }
+            guard let local else { continue }
+            try attRepo.delete(local, persist: false)
+            removed += 1
+        }
+
+        if removed > 0 {
+            try persist(context)
+            NotificationCenter.default.post(name: AppConstants.Notifications.attendanceDidChange, object: nil)
+        }
+        SyncSettings.recordAttendanceVoidReconcile()
     }
 
     private func reportProgress(_ message: String?) {

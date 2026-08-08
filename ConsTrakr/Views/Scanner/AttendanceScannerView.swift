@@ -107,6 +107,9 @@ struct AttendanceScannerView: View {
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceHistoryDidClear)) { _ in
                 viewModel.handleAttendanceHistoryCleared()
             }
+            .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceDidChange)) { _ in
+                viewModel.handleAttendanceDidChange()
+            }
             .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
                 Task { await viewModel.refreshScannerLocationGate() }
             }

@@ -43,6 +43,7 @@ enum AppConstants {
         static let syncIntervalMinutes = "settings.syncIntervalMinutes"
     static let uploadLargeFilesOnWiFiOnly = "settings.uploadLargeFilesOnWiFiOnly"
     static let lastFullRosterSyncAt = "settings.lastFullRosterSyncAt"
+        static let lastAttendanceVoidReconcileAt = "settings.lastAttendanceVoidReconcileAt"
         static let matchThreshold = "settings.matchThreshold"
         static let hasSeededMockData = "app.hasSeededMockData"
         static let uploadRawFramesEnabled = "settings.uploadRawFramesEnabled"
@@ -67,6 +68,7 @@ enum AppConstants {
 
     enum Notifications {
         static let attendanceHistoryDidClear = Notification.Name("constrakr.attendanceHistoryDidClear")
+        static let attendanceDidChange = Notification.Name("constrakr.attendanceDidChange")
         static let employeesDidChange = Notification.Name("constrakr.employeesDidChange")
         static let networkConnectivityDidChange = Notification.Name("constrakr.networkConnectivityDidChange")
     }

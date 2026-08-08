@@ -437,6 +437,22 @@ final class AttendanceScannerViewModel {
         endSession(status: "Choose Time In or Time Out to begin.")
     }
 
+    /// Rebuilds session punch cache when IMS voids remove local records.
+    func handleAttendanceDidChange() {
+        reloadRecordedKeysToday()
+    }
+
+    private func reloadRecordedKeysToday() {
+        recordedKeysToday.removeAll()
+        guard let attendanceService else { return }
+        let start = Calendar.current.startOfDay(for: Date())
+        let end = Date()
+        guard let records = try? attendanceService.history(from: start, to: end) else { return }
+        for record in records {
+            recordedKeysToday.insert(recordKey(employeeId: record.employeeId, checkType: record.checkType))
+        }
+    }
+
     func updateCheckType(_ type: CheckType) {
         beginSession(type: type)
     }

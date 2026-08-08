@@ -23,7 +23,7 @@ enum APIEndpoint {
     case getEmployeeIdDocuments(employeeServerId: String?, includeMedia: Bool)
     case postEmployeeIdDocument
     // Attendance
-    case getAttendance(employeeServerId: String?, startDate: Date?, endDate: Date?, includeMedia: Bool)
+    case getAttendance(employeeServerId: String?, startDate: Date?, endDate: Date?, includeMedia: Bool, updatedSince: Date? = nil)
     case postAttendance
     // Job sites
     case getJobSites
@@ -84,7 +84,7 @@ enum APIEndpoint {
                 items.append(URLQueryItem(name: "include_media", value: "1"))
             }
             return items
-        case .getAttendance(let employeeServerId, let startDate, let endDate, let includeMedia):
+        case .getAttendance(let employeeServerId, let startDate, let endDate, let includeMedia, let updatedSince):
             var items: [URLQueryItem] = []
             if let employeeServerId {
                 items.append(URLQueryItem(name: "employee_server_id", value: employeeServerId))
@@ -97,6 +97,9 @@ enum APIEndpoint {
             }
             if includeMedia {
                 items.append(URLQueryItem(name: "include_media", value: "1"))
+            }
+            if let updatedSince {
+                items.append(URLQueryItem(name: "updated_since", value: Self.dateTimeQueryString(updatedSince)))
             }
             return items
         default:
@@ -117,6 +120,12 @@ enum APIEndpoint {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+
+    private static func dateTimeQueryString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
     }
 
@@ -638,6 +647,23 @@ struct AttendanceDTO: Codable {
     let notes: String?
     /// Optional punch-time face crop (JPEG, base64).
     let punchPhotoBase64: String?
+    let isVoid: Bool
+    let updatedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case serverId = "server_id"
+        case id
+        case localId = "local_id"
+        case employeeServerId = "employee_server_id"
+        case employeeLocalId = "employee_local_id"
+        case checkType = "check_type"
+        case timestamp
+        case confidenceScore = "confidence_score"
+        case notes
+        case punchPhotoBase64 = "punch_photo_base64"
+        case isVoid = "is_void"
+        case updatedAt = "updated_at"
+    }
 
     init(
         serverId: String?,
@@ -648,7 +674,9 @@ struct AttendanceDTO: Codable {
         timestamp: Date,
         confidenceScore: Double,
         notes: String?,
-        punchPhotoBase64: String? = nil
+        punchPhotoBase64: String? = nil,
+        isVoid: Bool = false,
+        updatedAt: Date? = nil
     ) {
         self.serverId = serverId
         self.localId = localId
@@ -659,6 +687,42 @@ struct AttendanceDTO: Codable {
         self.confidenceScore = confidenceScore
         self.notes = notes
         self.punchPhotoBase64 = punchPhotoBase64
+        self.isVoid = isVoid
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let serverId = try container.decodeIfPresent(String.self, forKey: .serverId) {
+            self.serverId = serverId
+        } else {
+            self.serverId = try container.decodeIfPresent(String.self, forKey: .id)
+        }
+        localId = try container.decode(UUID.self, forKey: .localId)
+        employeeServerId = try container.decodeIfPresent(String.self, forKey: .employeeServerId)
+        employeeLocalId = try container.decode(UUID.self, forKey: .employeeLocalId)
+        checkType = try container.decode(String.self, forKey: .checkType)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        confidenceScore = try container.decode(Double.self, forKey: .confidenceScore)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        punchPhotoBase64 = try container.decodeIfPresent(String.self, forKey: .punchPhotoBase64)
+        isVoid = try container.decodeIfPresent(Bool.self, forKey: .isVoid) ?? false
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(serverId, forKey: .serverId)
+        try container.encode(localId, forKey: .localId)
+        try container.encodeIfPresent(employeeServerId, forKey: .employeeServerId)
+        try container.encode(employeeLocalId, forKey: .employeeLocalId)
+        try container.encode(checkType, forKey: .checkType)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encode(confidenceScore, forKey: .confidenceScore)
+        try container.encodeIfPresent(notes, forKey: .notes)
+        try container.encodeIfPresent(punchPhotoBase64, forKey: .punchPhotoBase64)
+        try container.encode(isVoid, forKey: .isVoid)
+        try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
     }
 }
 

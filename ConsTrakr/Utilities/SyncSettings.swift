@@ -50,4 +50,14 @@ enum SyncSettings {
     static func recordFullRosterSync(at date: Date = Date()) {
         UserDefaults.standard.set(date.timeIntervalSince1970, forKey: AppConstants.UserDefaultsKeys.lastFullRosterSyncAt)
     }
+
+    static var lastAttendanceVoidReconcileDate: Date? {
+        let raw = UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.lastAttendanceVoidReconcileAt)
+        guard raw > 0 else { return nil }
+        return Date(timeIntervalSince1970: raw)
+    }
+
+    static func recordAttendanceVoidReconcile(at date: Date = Date()) {
+        UserDefaults.standard.set(date.timeIntervalSince1970, forKey: AppConstants.UserDefaultsKeys.lastAttendanceVoidReconcileAt)
+    }
 }

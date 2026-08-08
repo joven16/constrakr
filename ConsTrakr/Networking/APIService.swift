@@ -492,7 +492,8 @@ actor APIService {
         employeeServerId: String? = nil,
         startDate: Date? = nil,
         endDate: Date? = nil,
-        includeMedia: Bool = false
+        includeMedia: Bool = false,
+        updatedSince: Date? = nil
     ) async throws -> [AttendanceDTO] {
         try rejectIfUnconfigured()
         var request = try makeRequest(
@@ -500,7 +501,8 @@ actor APIService {
                 employeeServerId: employeeServerId,
                 startDate: startDate,
                 endDate: endDate,
-                includeMedia: includeMedia
+                includeMedia: includeMedia,
+                updatedSince: updatedSince
             )
         )
         if includeMedia { request.timeoutInterval = 300 }

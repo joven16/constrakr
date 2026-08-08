@@ -73,6 +73,9 @@ struct DTRView: View {
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceHistoryDidClear)) { _ in
                 viewModel.refresh()
             }
+            .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceDidChange)) { _ in
+                viewModel.refresh()
+            }
             .refreshable {
                 await viewModel.syncNow()
             }

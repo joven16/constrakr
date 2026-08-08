@@ -82,6 +82,28 @@ final class AttendanceRepository {
         return try context.fetch(descriptor).first
     }
 
+    func fetch(localId: UUID) throws -> Attendance? {
+        let descriptor = FetchDescriptor<Attendance>(
+            predicate: #Predicate { $0.id == localId }
+        )
+        return try context.fetch(descriptor).first
+    }
+
+    func fetch(serverId: String) throws -> Attendance? {
+        let descriptor = FetchDescriptor<Attendance>(
+            predicate: #Predicate { $0.serverId == serverId }
+        )
+        return try context.fetch(descriptor).first
+    }
+
+    func delete(_ attendance: Attendance, persist: Bool = true) throws {
+        AttendancePhotoStore.delete(attendanceId: attendance.id)
+        context.delete(attendance)
+        if persist {
+            try context.save()
+        }
+    }
+
     func save(_ attendance: Attendance) throws {
         context.insert(attendance)
         try context.save()
