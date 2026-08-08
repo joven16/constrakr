@@ -61,7 +61,7 @@ struct SettingsView: View {
                 Task { await viewModel.testRestoreFromCloud() }
             }
         } message: {
-            Text("This removes all employees, face enrollment, and DTR records from this device only, then downloads the full backup from IMS. Your IMS data stays safe.")
+            Text("This removes all employees, face enrollment, and DTR records from this device only, then downloads the full backup from the server. Your cloud data stays safe.")
         }
         .alert("Restore Test Result", isPresented: $viewModel.showRestoreTestAlert) {
             Button("OK", role: .cancel) {}
@@ -144,7 +144,7 @@ struct SettingsView: View {
                 .disabled(viewModel.adminUsername.isEmpty || viewModel.adminPassword.isEmpty)
             }
         } header: {
-            Text("IMS Account")
+            Text("Sync Account")
         } footer: {
             Text("Use your sync_admin credentials. Required for sync, restore, and cloud backup.")
         }

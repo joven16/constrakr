@@ -22,7 +22,7 @@ struct APITestResult {
         lines.append("Base: \(baseURL)")
 
         if isPlaceholderHost {
-            lines.append("⚠️ Placeholder host — set your real IMS URL in Settings.")
+            lines.append("⚠️ Placeholder host — set your real server URL in Settings.")
         }
 
         lines.append("Health \(healthURL): \(healthOK ? "OK" : "FAILED") (\(healthStatusCode.map(String.init) ?? "—"))")
@@ -42,7 +42,7 @@ struct APITestResult {
         } else if loginMessage.contains("invalid_credentials") {
             lines.append("Wrong username or password for sync_admin.")
         } else if loginMessage.contains("Enter username") || loginMessage.contains("Saved session") {
-            lines.append("Sign in under IMS Sync & Restore, or enter credentials in IMS API.")
+            lines.append("Sign in under Sync account, or enter credentials in Server URL.")
         } else {
             lines.append("Check sync_admin username/password.")
         }
@@ -60,7 +60,7 @@ enum APITestRunner {
         let host = normalizedHostRoot(baseURL)
         let healthURL = host + AppConstants.apiPathPrefix + "/health"
         let loginURL = host + AppConstants.apiPathPrefix + "/auth/admin/login"
-        let placeholder = host.contains("example.com") || host.contains("your-ims-domain.com")
+        let placeholder = host.contains("example.com") || host.contains("your-ims-domain.com") || host.contains("your-server.example.com")
 
         var healthOK = false
         var healthCode: Int?
@@ -92,7 +92,7 @@ enum APITestRunner {
         let savedUser = SyncAuthStore.loadUsername()
 
         if placeholder {
-            loginMsg = "Skipped — configure a real IMS host first."
+            loginMsg = "Skipped — configure a real server host first."
         } else if hasStoredToken && !hasPassword {
             // Already signed in — password was cleared; verify JWT instead of re-login.
             do {
@@ -104,7 +104,7 @@ enum APITestRunner {
                 switch error {
                 case .unauthorized:
                     loginCode = 401
-                    loginMsg = "Saved session expired — sign in again under IMS Sync & Restore."
+                    loginMsg = "Saved session expired — sign in again under Sync account."
                 case .serverError(let code, let message):
                     loginCode = code == 0 ? nil : code
                     loginMsg = message ?? "HTTP \(code)"
@@ -115,7 +115,7 @@ enum APITestRunner {
                 loginMsg = error.localizedDescription
             }
         } else if trimmedUser.isEmpty || !hasPassword {
-            loginMsg = "Enter username and password in IMS API, or sign in above first (leave password blank to test saved session)."
+            loginMsg = "Enter username and password below, or sign in under Sync account first (leave password blank to test saved session)."
         } else {
             do {
                 let response = try await APIService.shared.adminLogin(

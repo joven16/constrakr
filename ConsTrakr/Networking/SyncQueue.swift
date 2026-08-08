@@ -118,22 +118,22 @@ final class SyncQueue {
         await AdminSession.shared.restorePersistedSession()
 
         if await APIService.shared.isUsingPlaceholderHost() {
-            lastError = "Set your real IMS API URL in Settings (not your-ims-domain.com)."
+            lastError = "Set your real server URL in Settings (not your-server.example.com)."
             return
         }
 
         if SyncAuthStore.isTokenExpired() {
             AdminSession.shared.handleUnauthorized()
-            lastError = "IMS sign-in expired. Open Settings → IMS Sync and sign in again."
+            lastError = "Server sign-in expired. Open Settings → Sync account and sign in again."
             return
         }
 
         guard AdminSession.shared.isAuthenticated else {
-            lastError = "Sign in under Settings → IMS Sync before syncing."
+            lastError = "Sign in under Settings → Sync account before syncing."
             return
         }
         guard await APIService.shared.hasAuthToken() else {
-            lastError = "Sign in under Settings → IMS Sync before syncing."
+            lastError = "Sign in under Settings → Sync account before syncing."
             AdminSession.shared.handleUnauthorized()
             return
         }
@@ -163,7 +163,7 @@ final class SyncQueue {
             BackgroundSyncScheduler.scheduleNextSync()
         } catch NetworkError.unauthorized {
             AdminSession.shared.handleUnauthorized()
-            lastError = "IMS sign-in expired or invalid. Sign in again under Settings."
+            lastError = "Server sign-in expired or invalid. Sign in again under Settings."
         } catch NetworkError.offline {
             lastError = NetworkError.offline.localizedDescription
         } catch {

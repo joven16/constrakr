@@ -9,8 +9,8 @@ import Foundation
 import SwiftData
 
 enum EmployeeCloudStatus: String {
-    case onIMS = "On IMS"
-    case needsUpload = "Not on IMS"
+    case onIMS = "On server"
+    case needsUpload = "Not on server"
     case notChecked = "Not checked"
 
     var colorName: String {
@@ -23,8 +23,8 @@ enum EmployeeCloudStatus: String {
 
     var displayName: String {
         switch self {
-        case .onIMS: return "On IMS"
-        case .needsUpload: return "Not on IMS"
+        case .onIMS: return "On server"
+        case .needsUpload: return "Not on server"
         case .notChecked: return "Not checked"
         }
     }
@@ -44,11 +44,11 @@ struct EmployeeSyncStatusItem: Identifiable {
     var imsDateLine: String {
         switch status {
         case .onIMS:
-            return imsUpdatedAt.map { "IMS \($0.attendanceDisplay)" } ?? "On IMS"
+            return imsUpdatedAt.map { "Server \($0.attendanceDisplay)" } ?? "On server"
         case .needsUpload:
             return "Local \(localUpdatedAt.attendanceDisplay)"
         case .notChecked:
-            return "Tap Sync or Check IMS"
+            return "Tap Sync or check server"
         }
     }
 }
@@ -73,9 +73,9 @@ struct EmployeeSyncReport {
             return statusNote
         }
         if remoteSkippedDecode > 0 {
-            return "\(confirmedOnIMS)/\(localTotal) on IMS · \(remoteSkippedDecode) IMS row(s) unreadable"
+            return "\(confirmedOnIMS)/\(localTotal) on server · \(remoteSkippedDecode) server row(s) unreadable"
         }
-        return "\(confirmedOnIMS)/\(localTotal) on IMS · \(remoteTotal) on server · checked \(checkedAt.attendanceDisplay)"
+        return "\(confirmedOnIMS)/\(localTotal) on server · \(remoteTotal) on server · checked \(checkedAt.attendanceDisplay)"
     }
 
     func status(for employeeId: UUID) -> EmployeeCloudStatus {
@@ -109,11 +109,11 @@ enum EmployeeSyncChecker {
         guard isSignedIn, isOnline else {
             let statusNote: String?
             if !isOnline {
-                statusNote = "No internet connection. Connect to check IMS."
+                statusNote = "No internet connection. Connect to check the server."
             } else if !AdminSession.shared.isAuthenticated || !hasToken {
-                statusNote = "Sign in under Settings → IMS Sync & Restore before checking IMS."
+                statusNote = "Sign in under Settings → Sync account before checking the server."
             } else {
-                statusNote = "Could not reach IMS."
+                statusNote = "Could not reach the server."
             }
 
             let items = local.map { employee in
@@ -281,13 +281,13 @@ enum EmployeeSyncChecker {
         needsUpload: Int
     ) -> String? {
         if remoteRawCount > 0, remoteSkippedDecode > 0 {
-            return "IMS sent \(remoteRawCount) employee(s) but \(remoteSkippedDecode) could not be read. Tap Sync Now."
+            return "Server sent \(remoteRawCount) employee(s) but \(remoteSkippedDecode) could not be read. Tap Sync Now."
         }
         guard !local.isEmpty, needsUpload > 0 else { return nil }
 
         let localCodes = local.map(\.employeeCode).sorted()
         if remoteTotal == 0 {
-            return "IMS returned 0 employees to the phone. Sign in, tap Sync Now, or confirm codes match IMS web (\(localCodes.joined(separator: ", ")))."
+            return "Server returned 0 employees to the phone. Sign in, tap Sync Now, or confirm codes match the web dashboard (\(localCodes.joined(separator: ", ")))."
         }
 
         let remoteNormalized = Set(remoteCodes.map { APIDecoding.normalizeEmployeeCode($0) })
@@ -298,7 +298,7 @@ enum EmployeeSyncChecker {
 
         let imsList = remoteCodes.sorted().joined(separator: ", ")
         let phoneList = unmatched.map(\.employeeCode).sorted().joined(separator: ", ")
-        return "IMS has: \(imsList). Phone not matched: \(phoneList). Codes must match for backup."
+        return "Server has: \(imsList). Phone not matched: \(phoneList). Codes must match for backup."
     }
 }
 

@@ -93,7 +93,7 @@ struct EmployeeRegistrationView: View {
             } header: {
                 Text("Employee Information")
             } footer: {
-                Text("Employee ID is assigned automatically when registration completes (YYYYMM + sequence, e.g. 202608001).\n\nAssign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
+                Text("Pick department first, then position. Employee ID is assigned automatically when registration completes (YYYYMM + sequence, e.g. 202608001).\n\nAssign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
             }
         }
         .scrollContentBackground(.hidden)

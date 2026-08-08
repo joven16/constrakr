@@ -292,7 +292,7 @@ final class SettingsViewModel {
             try await AdminSession.shared.signIn(username: adminUsername, password: adminPassword)
             adminPassword = ""
             refresh()
-            statusMessage = "Signed in to IMS. Sync and restore are enabled."
+            statusMessage = "Signed in. Sync and restore are enabled."
         } catch {
             statusMessage = error.localizedDescription
         }

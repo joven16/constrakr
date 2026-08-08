@@ -90,7 +90,7 @@ actor APIService {
                 .prefix(240)
             let body = snippet.map(String.init) ?? "decode error"
             let hint = body.lowercased().contains("<!doctype html") || body.lowercased().contains("<html")
-                ? " Check Base URL is host only, e.g. https://ims.rentelloph.com (not the web login page)."
+                ? " Check Base URL is host only, e.g. https://your-server.example.com (not the web login page)."
                 : ""
             throw NetworkError.serverError(
                 statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0,
@@ -230,7 +230,7 @@ actor APIService {
         let parsed = APIDecoding.decodeEmployees(from: data)
         if parsed.rawCount > 0, parsed.decodedCount == 0 {
             throw NetworkError.decodingFailed(
-                message: "Could not read \(parsed.rawCount) employee(s) from IMS. Tap Sync Now to retry."
+                message: "Could not read \(parsed.rawCount) employee(s) from the server. Tap Sync Now to retry."
             )
         }
         return parsed.employees
@@ -592,7 +592,7 @@ actor APIService {
         if isUnconfiguredHost {
             throw NetworkError.serverError(
                 statusCode: 0,
-                message: "Set your real IMS API URL in Settings (currently your-ims-domain.com)."
+                message: "Set your real server URL in Settings (currently your-server.example.com)."
             )
         }
     }

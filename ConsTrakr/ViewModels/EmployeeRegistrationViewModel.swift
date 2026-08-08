@@ -113,6 +113,7 @@ final class EmployeeRegistrationViewModel {
     var isFormValid: Bool {
         !firstName.trimmingCharacters(in: .whitespaces).isEmpty
             && !lastName.trimmingCharacters(in: .whitespaces).isEmpty
+            && DepartmentSelectionValidator.isComplete(department: department, position: position)
     }
 
     var canSave: Bool {
@@ -278,7 +279,7 @@ final class EmployeeRegistrationViewModel {
             let employee = try employeeService.register(
                 firstName: firstName,
                 lastName: lastName,
-                department: department.isEmpty ? "General" : department,
+                department: department,
                 position: position,
                 assignedSiteId: assignedSiteId,
                 embeddings: embeddings,

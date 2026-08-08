@@ -77,10 +77,10 @@ struct EmployeeSyncIndicator: View {
     }
 
     private var accessibilityLabel: String {
-        if isUpToDate { return "Up to date on IMS" }
+        if isUpToDate { return "Up to date on server" }
         if localStatus == .failed { return "Sync failed" }
         if localStatus == .syncing { return "Syncing" }
-        if cloudStatus == .needsUpload { return "Not on IMS, needs upload" }
+        if cloudStatus == .needsUpload { return "Not on server, needs upload" }
         return "Pending sync"
     }
 }

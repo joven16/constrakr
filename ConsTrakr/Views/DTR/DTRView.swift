@@ -163,7 +163,7 @@ struct DTRView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Text("Pull down to sync punches and IMS corrections.")
+                Text("Pull down to sync punches and server corrections.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

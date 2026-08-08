@@ -24,6 +24,7 @@ struct EmployeeEditView: View {
     private var isFormValid: Bool {
         !firstName.trimmingCharacters(in: .whitespaces).isEmpty
             && !lastName.trimmingCharacters(in: .whitespaces).isEmpty
+            && DepartmentSelectionValidator.isComplete(department: department, position: position)
     }
 
     var body: some View {
@@ -41,7 +42,7 @@ struct EmployeeEditView: View {
             } header: {
                 Text("Employee Information")
             } footer: {
-                Text("Employee ID cannot be changed. Face enrollment is unchanged.")
+                Text("Pick department first, then position. Employee ID cannot be changed. Face enrollment is unchanged.")
             }
 
             Section {

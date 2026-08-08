@@ -28,7 +28,7 @@ struct RestoreTestResult {
             "Local data cleared:",
             "  \(wiped.summaryLine)",
             "",
-            "Downloaded from IMS:",
+            "Downloaded from server:",
             "  \(restored.detailedLines.joined(separator: "\n  "))",
             "",
             restored.verificationNote
@@ -96,10 +96,10 @@ extension SyncService.RestoreSummary {
             lines.append("⚠️ No face templates — face scan may not work offline.")
         }
         if enrollmentPhotos > 0 && enrollmentPhotosWithJPEG < enrollmentPhotos {
-            lines.append("⚠️ Some enrollment photos missing JPEG bytes from IMS.")
+            lines.append("⚠️ Some enrollment photos missing JPEG bytes from the server.")
         }
         if attendance > 0 && punchPhotos == 0 {
-            lines.append("⚠️ No punch photo JPEGs restored (check IMS include_media).")
+            lines.append("⚠️ No punch photo JPEGs restored (check server include_media).")
         }
         return lines
     }

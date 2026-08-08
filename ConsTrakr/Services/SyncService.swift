@@ -89,7 +89,7 @@ final class SyncService {
         var remoteEmployees = rosterResult.employees
         var remoteParsed = rosterResult.parsed
 
-        reportProgress("Applying IMS changes…")
+        reportProgress("Applying server changes…")
         summary.employeesImportedFromIMS = try await importMissingRemoteEmployees(
             context: context,
             remoteEmployees: remoteEmployees
@@ -129,7 +129,7 @@ final class SyncService {
 
         guard try hasPendingPushWork(context: context, scope: scope) else {
             if scope != .employees {
-                reportProgress("Checking IMS updates…")
+                reportProgress("Checking server updates…")
                 try await reconcileRemoteAttendanceVoids(context: context)
                 try await pullRemoteAttendance(context: context, focusDate: dtrFocusDate)
             }
@@ -161,7 +161,7 @@ final class SyncService {
         if scope != .employees {
             reportProgress("Uploading attendance…")
             try await uploadPendingAttendance(context: context)
-            reportProgress("Checking IMS updates…")
+            reportProgress("Checking server updates…")
             try await reconcileRemoteAttendanceVoids(context: context)
             try await pullRemoteAttendance(context: context, focusDate: dtrFocusDate)
         }
@@ -206,9 +206,9 @@ final class SyncService {
         await warmConnectionIfNeeded()
         reportProgress("Uploading punches…")
         try await uploadPendingAttendance(context: context)
-        reportProgress("Checking IMS updates…")
+        reportProgress("Checking server updates…")
         try await reconcileRemoteAttendanceVoids(context: context)
-        reportProgress("Downloading IMS DTR…")
+        reportProgress("Downloading server DTR…")
         try await pullRemoteAttendance(context: context, focusDate: dtrFocusDate)
         reportProgress(nil)
         return PushSyncSummary()
@@ -476,22 +476,22 @@ final class SyncService {
 
         var successMessage: String {
             if employeesPosted == 0 && employeesLinked == 0 {
-                var parts = ["\(employeesConfirmedOnIMS)/\(employeesLocalTotal) employees on IMS"]
+                var parts = ["\(employeesConfirmedOnIMS)/\(employeesLocalTotal) employees on server"]
                 if employeesImportedFromIMS > 0 {
-                    parts.append("\(employeesImportedFromIMS) imported from IMS")
+                    parts.append("\(employeesImportedFromIMS) imported from server")
                 }
                 if embeddingsUploaded > 0 || photosUploaded > 0 {
                     parts.append("\(embeddingsUploaded) embeddings, \(photosUploaded) photos uploaded")
                 }
                 return parts.joined(separator: " · ")
             }
-            return "Uploaded \(employeesPosted), linked \(employeesLinked). \(employeesConfirmedOnIMS)/\(employeesLocalTotal) on IMS."
+            return "Uploaded \(employeesPosted), linked \(employeesLinked). \(employeesConfirmedOnIMS)/\(employeesLocalTotal) on server."
         }
 
         var failureMessage: String {
             var parts: [String] = []
             if employeesStillLocalOnly > 0 {
-                parts.append("\(employeesStillLocalOnly) employee(s) still not on IMS")
+                parts.append("\(employeesStillLocalOnly) employee(s) still not on server")
             }
             if employeesUploadFailed > 0 {
                 parts.append("\(employeesUploadFailed) employee upload(s) failed")

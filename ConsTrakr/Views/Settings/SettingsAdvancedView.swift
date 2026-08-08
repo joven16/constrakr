@@ -27,7 +27,7 @@ struct SettingsAdvancedView: View {
                 }
                 .disabled(viewModel.isTestingAPI)
             } header: {
-                Text("IMS Server")
+                Text("Server URL")
             } footer: {
                 if let apiTestMessage = viewModel.apiTestMessage {
                     Text(apiTestMessage)
@@ -64,7 +64,7 @@ struct SettingsAdvancedView: View {
                 } header: {
                     Text("Device Recovery")
                 } footer: {
-                    Text("Restore adds IMS data to this device. Test Restore wipes local employees, face data, and DTR first — simulates a replacement phone. IMS cloud data is not deleted.")
+                    Text("Restore adds server data to this device. Test Restore wipes local employees, face data, and DTR first — simulates a replacement phone. Cloud data on the server is not deleted.")
                 }
             }
 

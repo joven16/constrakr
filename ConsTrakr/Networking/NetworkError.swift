@@ -23,7 +23,7 @@ enum NetworkError: LocalizedError {
         case .invalidResponse:
             return "Unexpected response from the server."
         case .unauthorized:
-            return "Sign in under Settings with your IMS sync admin account before syncing."
+            return "Sign in under Settings with your sync admin account before syncing."
         case .serverError(let code, let message):
             return message ?? "Server error (\(code))."
         case .decodingFailed(let message):

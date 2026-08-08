@@ -84,7 +84,7 @@ struct EmployeeListView: View {
                 ContentUnavailableView(
                     "No Employees",
                     systemImage: "person.slash",
-                    description: Text("Tap Register to enroll a new employee, or pull down to sync from IMS.")
+                    description: Text("Tap Register to enroll a new employee, or pull down to sync from the server.")
                 )
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
@@ -180,9 +180,9 @@ struct EmployeeListView: View {
 
     private var deleteConfirmationMessage: String {
         if employeesPendingDeletion.count == 1, let employee = employeesPendingDeletion.first {
-            return "\(employee.fullName) (\(employee.employeeCode)) will be removed from this device, including face enrollment data. If synced to IMS, their record stays on the server as Removed from app (attendance history preserved). The employee ID can be used again for a new registration."
+            return "\(employee.fullName) (\(employee.employeeCode)) will be removed from this device, including face enrollment data. If synced to the server, their record stays on the server as Removed from app (attendance history preserved). The employee ID can be used again for a new registration."
         }
-        return "\(employeesPendingDeletion.count) employees will be removed from this device, including face enrollment data. Synced records stay on IMS as Removed from app. Employee IDs can be reused for new registrations."
+        return "\(employeesPendingDeletion.count) employees will be removed from this device, including face enrollment data. Synced records stay on the server as Removed from app. Employee IDs can be reused for new registrations."
     }
 
     private func confirmDeleteEmployees() {
@@ -304,10 +304,10 @@ struct EmployeeDetailView: View {
     private var syncSummaryText: String {
         let local = cloudItem?.localSyncStatus ?? employee.syncStatus
         let indicator = EmployeeSyncIndicator(cloudStatus: cloudStatus, localStatus: local)
-        if indicator.isUpToDate { return "Up to date on IMS" }
+        if indicator.isUpToDate { return "Up to date on server" }
         if local == .failed { return "Sync failed — pull down to retry" }
         if local == .syncing { return "Syncing…" }
-        if cloudStatus == .needsUpload { return "Not on IMS — pull down to upload" }
+        if cloudStatus == .needsUpload { return "Not on server — pull down to upload" }
         if local == .pending { return "Pending upload" }
         return "Pull down to sync"
     }
@@ -395,7 +395,7 @@ struct EmployeeDetailView: View {
                         if let cloudItem {
                             LabeledContent("Checked", value: cloudItem.checkedAt.attendanceDisplay)
                             if let imsUpdatedAt = cloudItem.imsUpdatedAt {
-                                LabeledContent("IMS updated", value: imsUpdatedAt.attendanceDisplay)
+                                LabeledContent("Server updated", value: imsUpdatedAt.attendanceDisplay)
                             }
                             LabeledContent("Local sync", value: cloudItem.localSyncStatus.displayName)
                         }
