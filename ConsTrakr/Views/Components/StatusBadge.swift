@@ -39,6 +39,52 @@ struct CloudStatusBadge: View {
     }
 }
 
+/// Compact list indicator: check when on IMS and synced, sync arrow when pending/upload needed.
+struct EmployeeSyncIndicator: View {
+    let cloudStatus: EmployeeCloudStatus
+    let localStatus: SyncStatus
+
+    var body: some View {
+        Group {
+            if isUpToDate {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else if localStatus == .syncing {
+                ProgressView()
+                    .controlSize(.small)
+            } else if localStatus == .failed {
+                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                    .foregroundStyle(.red)
+            } else {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .foregroundStyle(syncTint)
+            }
+        }
+        .font(.title3)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    var isUpToDate: Bool {
+        cloudStatus == .onIMS && localStatus == .synced
+    }
+
+    private var syncTint: Color {
+        switch localStatus {
+        case .syncing: return .blue
+        case .pending: return .orange
+        default: return .orange
+        }
+    }
+
+    private var accessibilityLabel: String {
+        if isUpToDate { return "Up to date on IMS" }
+        if localStatus == .failed { return "Sync failed" }
+        if localStatus == .syncing { return "Syncing" }
+        if cloudStatus == .needsUpload { return "Not on IMS, needs upload" }
+        return "Pending sync"
+    }
+}
+
 struct StatCard: View {
     let title: String
     let value: String

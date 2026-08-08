@@ -20,41 +20,7 @@ struct DTRView: View {
                 datePicker
                 syncStatusBar
                 columnHeader
-                if viewModel.rows.isEmpty {
-                    ContentUnavailableView(
-                        "No DTR for this date",
-                        systemImage: "calendar.badge.exclamationmark",
-                        description: Text("Time In and Time Out records for \(viewModel.dayTitle) will appear here.")
-                    )
-                    .frame(maxHeight: .infinity)
-                } else {
-                    List(viewModel.rows) { row in
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(row.employeeName)
-                                .font(.body.weight(.semibold))
-                            Text(row.employeeCode)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            HStack(alignment: .top, spacing: 12) {
-                                timeColumn(
-                                    title: CheckType.checkIn.displayName,
-                                    time: row.timeIn,
-                                    attendanceId: row.timeInAttendanceId,
-                                    color: .green
-                                )
-                                timeColumn(
-                                    title: CheckType.checkOut.displayName,
-                                    time: row.timeOut,
-                                    attendanceId: row.timeOutAttendanceId,
-                                    color: .orange
-                                )
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .listStyle(.insetGrouped)
-                }
+                dtrList
             }
             .navigationTitle("DTR")
             .navigationBarTitleDisplayMode(.inline)
@@ -76,9 +42,54 @@ struct DTRView: View {
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceDidChange)) { _ in
                 viewModel.refresh()
             }
-            .refreshable {
-                await viewModel.syncNow()
+        }
+    }
+
+    private var dtrList: some View {
+        List {
+            if viewModel.rows.isEmpty {
+                Section {
+                    ContentUnavailableView(
+                        "No DTR for this date",
+                        systemImage: "calendar.badge.exclamationmark",
+                        description: Text("Pull down to sync punches and IMS corrections for \(viewModel.dayTitle).")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                ForEach(viewModel.rows) { row in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(row.employeeName)
+                            .font(.body.weight(.semibold))
+                        Text(row.employeeCode)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack(alignment: .top, spacing: 12) {
+                            timeColumn(
+                                title: CheckType.checkIn.displayName,
+                                time: row.timeIn,
+                                attendanceId: row.timeInAttendanceId,
+                                isCorrected: row.timeInCorrected,
+                                color: .green
+                            )
+                            timeColumn(
+                                title: CheckType.checkOut.displayName,
+                                time: row.timeOut,
+                                attendanceId: row.timeOutAttendanceId,
+                                isCorrected: row.timeOutCorrected,
+                                color: .orange
+                            )
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
             }
+        }
+        .listStyle(.insetGrouped)
+        .refreshable {
+            await viewModel.syncNow()
         }
     }
 
@@ -97,7 +108,7 @@ struct DTRView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Text("Pull down to upload pending punches.")
+                Text("Pull down to sync punches and IMS corrections.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -114,10 +125,11 @@ struct DTRView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
             DatePicker(
-                "DTR Date",
+                "",
                 selection: $viewModel.selectedDate,
                 displayedComponents: .date
             )
+            .labelsHidden()
             .datePickerStyle(.compact)
             .padding(.horizontal)
             .padding(.bottom, 8)
@@ -138,11 +150,27 @@ struct DTRView: View {
         .padding(.bottom, 8)
     }
 
-    private func timeColumn(title: String, time: Date?, attendanceId: UUID?, color: Color) -> some View {
+    private func timeColumn(
+        title: String,
+        time: Date?,
+        attendanceId: UUID?,
+        isCorrected: Bool,
+        color: Color
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(color)
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(color)
+                if isCorrected {
+                    Text("Corrected")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.12), in: Capsule())
+                }
+            }
             if let time {
                 HStack(spacing: 8) {
                     punchThumb(attendanceId)

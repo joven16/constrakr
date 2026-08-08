@@ -37,7 +37,6 @@ enum EnrollScanPhase: Equatable {
 @MainActor
 @Observable
 final class EmployeeRegistrationViewModel {
-    var employeeCode = ""
     var firstName = ""
     var lastName = ""
     var department = ""
@@ -111,8 +110,7 @@ final class EmployeeRegistrationViewModel {
     }
 
     var isFormValid: Bool {
-        !employeeCode.trimmingCharacters(in: .whitespaces).isEmpty
-            && !firstName.trimmingCharacters(in: .whitespaces).isEmpty
+        !firstName.trimmingCharacters(in: .whitespaces).isEmpty
             && !lastName.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
@@ -276,8 +274,7 @@ final class EmployeeRegistrationViewModel {
 
         let embeddings = FacePose.allCases.compactMap { capturedEmbeddings[$0] }
         do {
-            _ = try employeeService.register(
-                employeeCode: employeeCode,
+            let employee = try employeeService.register(
                 firstName: firstName,
                 lastName: lastName,
                 department: department.isEmpty ? "General" : department,
@@ -292,7 +289,7 @@ final class EmployeeRegistrationViewModel {
             )
             didSave = true
             isEnrolling = false
-            successMessage = "\(firstName) \(lastName) was registered successfully."
+            successMessage = "\(firstName) \(lastName) was registered as \(employee.employeeCode)."
             setInstruction("Registration complete")
             stopCamera()
             NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
@@ -338,7 +335,6 @@ final class EmployeeRegistrationViewModel {
     }
 
     private func resetForNextEmployee() {
-        employeeCode = ""
         firstName = ""
         lastName = ""
         department = ""

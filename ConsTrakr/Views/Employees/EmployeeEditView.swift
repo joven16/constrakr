@@ -13,7 +13,6 @@ struct EmployeeEditView: View {
 
     let employee: Employee
 
-    @State private var employeeCode = ""
     @State private var firstName = ""
     @State private var lastName = ""
     @State private var department = ""
@@ -22,18 +21,14 @@ struct EmployeeEditView: View {
     @State private var isSaving = false
 
     private var isFormValid: Bool {
-        !employeeCode.trimmingCharacters(in: .whitespaces).isEmpty
-            && !firstName.trimmingCharacters(in: .whitespaces).isEmpty
+        !firstName.trimmingCharacters(in: .whitespaces).isEmpty
             && !lastName.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var body: some View {
         Form {
             Section {
-                TextField("Employee Code", text: $employeeCode)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .textContentType(.username)
+                LabeledContent("Employee Code", value: employee.employeeCode)
 
                 TextField("First Name", text: $firstName)
                     .textContentType(.givenName)
@@ -46,7 +41,7 @@ struct EmployeeEditView: View {
             } header: {
                 Text("Employee Information")
             } footer: {
-                Text("Face enrollment is unchanged.")
+                Text("Employee ID cannot be changed. Face enrollment is unchanged.")
             }
 
             Section {
@@ -68,7 +63,6 @@ struct EmployeeEditView: View {
             }
         }
         .onAppear {
-            employeeCode = employee.employeeCode
             firstName = employee.firstName
             lastName = employee.lastName
             department = employee.department
@@ -98,7 +92,6 @@ struct EmployeeEditView: View {
         do {
             try service.updateProfile(
                 employee: employee,
-                employeeCode: employeeCode,
                 firstName: firstName,
                 lastName: lastName,
                 department: department,

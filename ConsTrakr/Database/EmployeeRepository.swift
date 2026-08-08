@@ -46,6 +46,15 @@ final class EmployeeRepository {
         return try context.fetch(descriptor).first
     }
 
+    func fetchEmployeeCodes(withPrefix prefix: String) throws -> [String] {
+        let descriptor = FetchDescriptor<Employee>(
+            predicate: #Predicate { employee in
+                employee.employeeCode.starts(with: prefix)
+            }
+        )
+        return try context.fetch(descriptor).map(\.employeeCode)
+    }
+
     func fetchByFullName(firstName: String, lastName: String) throws -> Employee? {
         let descriptor = FetchDescriptor<Employee>(
             predicate: #Predicate { employee in

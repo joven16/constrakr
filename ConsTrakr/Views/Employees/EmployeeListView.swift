@@ -23,127 +23,127 @@ struct EmployeeListView: View {
 
     @ViewBuilder
     private var employeeListContent: some View {
-        List {
-            Section {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Search name, code, department", text: $viewModel.searchText)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled()
+        employeeList
+            .listStyle(.plain)
+            .searchable(text: $viewModel.searchText, prompt: "Search name, code, department")
+            .navigationTitle("Employees")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { registerToolbar }
+            .alert("Delete employee?", isPresented: $showDeleteConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    employeesPendingDeletion = []
                 }
-            }
-            .listRowBackground(Color(.secondarySystemGroupedBackground))
-
-            syncSection
-
-            if viewModel.employees.isEmpty {
-                Section {
-                    ContentUnavailableView(
-                        "No Employees",
-                        systemImage: "person.slash",
-                        description: Text("Tap Register to enroll a new employee, or pull down to sync from IMS.")
-                    )
-                    .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
+                Button("Delete", role: .destructive) {
+                    confirmDeleteEmployees()
                 }
-            } else {
-                ForEach(viewModel.employees, id: \.id) { employee in
-                    NavigationLink {
-                        EmployeeDetailView(
-                            employee: employee,
-                            cloudItem: viewModel.cloudItem(for: employee.id)
-                        )
-                    } label: {
-                        EmployeeRow(
-                            employee: employee,
-                            cloudItem: viewModel.cloudItem(for: employee.id)
-                        )
-                    }
-                }
-                .onDelete { indexSet in
-                    employeesPendingDeletion = indexSet.map { viewModel.employees[$0] }
-                    showDeleteConfirmation = true
-                }
+            } message: {
+                Text(deleteConfirmationMessage)
             }
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle("Employees")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    EmployeeRegistrationView()
-                } label: {
-                    Label("Register", systemImage: "person.crop.circle.badge.plus")
-                }
-            }
-        }
-        .alert("Delete employee?", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) {
-                employeesPendingDeletion = []
-            }
-            Button("Delete", role: .destructive) {
-                confirmDeleteEmployees()
-            }
-        } message: {
-            Text(deleteConfirmationMessage)
-        }
-        .onChange(of: viewModel.searchText) { _, _ in
-            viewModel.refresh()
-        }
-        .onAppear {
-            viewModel.configure(context: modelContext, syncQueue: syncQueue)
-            viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
-            Task {
-                await viewModel.checkCloudIfNeeded()
-            }
-        }
-        .onChange(of: tabRouter.selectedTab) { _, tab in
-            if tab == .employees {
+            .onChange(of: viewModel.searchText) { _, _ in
                 viewModel.refresh()
+            }
+            .onAppear {
+                viewModel.configure(context: modelContext, syncQueue: syncQueue)
                 viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
                 Task {
                     await viewModel.checkCloudIfNeeded()
                 }
             }
-        }
-        .onChange(of: syncQueue.lastEmployeeSyncReport?.checkedAt) { _, _ in
-            viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
-        }
-        .onChange(of: syncQueue.lastSyncDate) { _, _ in
-            viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
-            viewModel.refresh()
-        }
-        .refreshable {
-            await viewModel.syncNow()
-        }
-    }
-
-    private var syncSection: some View {
-        Section {
-            HStack(alignment: .top, spacing: 10) {
-                if syncQueue.isSyncing || viewModel.isCheckingCloud {
-                    ProgressView()
-                        .controlSize(.small)
-                        .padding(.top, 2)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(syncStatusLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if let warning = syncWarningLine {
-                        Text(warning)
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
+            .onChange(of: tabRouter.selectedTab) { _, tab in
+                if tab == .employees {
+                    viewModel.refresh()
+                    viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
+                    Task {
+                        await viewModel.checkCloudIfNeeded()
                     }
                 }
             }
-            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+            .onChange(of: syncQueue.lastEmployeeSyncReport?.checkedAt) { _, _ in
+                viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
+            }
+            .onChange(of: syncQueue.lastSyncDate) { _, _ in
+                viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
+                viewModel.refresh()
+            }
+            .refreshable {
+                await viewModel.syncNow()
+            }
+    }
+
+    private var employeeList: some View {
+        List {
+            if shouldShowSyncBanner {
+                syncBanner
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowSeparator(.hidden)
+            }
+
+            if viewModel.employees.isEmpty {
+                ContentUnavailableView(
+                    "No Employees",
+                    systemImage: "person.slash",
+                    description: Text("Tap Register to enroll a new employee, or pull down to sync from IMS.")
+                )
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else {
+                employeeRows
+            }
+        }
+    }
+
+    private var employeeRows: some View {
+        ForEach(viewModel.employees, id: \.id) { employee in
+            EmployeeNavigationRow(
+                employee: employee,
+                cloudItem: viewModel.cloudItem(for: employee.id)
+            )
+        }
+        .onDelete { indexSet in
+            employeesPendingDeletion = indexSet.map { viewModel.employees[$0] }
+            showDeleteConfirmation = true
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var registerToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            NavigationLink {
+                EmployeeRegistrationView()
+            } label: {
+                Label("Register", systemImage: "person.crop.circle.badge.plus")
+            }
+        }
+    }
+
+    private var shouldShowSyncBanner: Bool {
+        syncQueue.isSyncing
+            || viewModel.isCheckingCloud
+            || syncQueue.pendingCount > 0
+            || syncWarningLine != nil
+    }
+
+    private var syncBanner: some View {
+        HStack(alignment: .center, spacing: 10) {
+            if syncQueue.isSyncing || viewModel.isCheckingCloud {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(syncStatusLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let warning = syncWarningLine {
+                    Text(warning)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
         }
     }
 
@@ -195,6 +195,21 @@ struct EmployeeListView: View {
     }
 }
 
+private struct EmployeeNavigationRow: View {
+    let employee: Employee
+    let cloudItem: EmployeeSyncStatusItem?
+
+    var body: some View {
+        NavigationLink {
+            EmployeeDetailView(employee: employee, cloudItem: cloudItem)
+        } label: {
+            EmployeeRow(employee: employee, cloudItem: cloudItem)
+        }
+        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 12))
+        .listRowSeparatorTint(Color(.separator))
+    }
+}
+
 private struct EmployeeRow: View {
     let employee: Employee
     let cloudItem: EmployeeSyncStatusItem?
@@ -203,33 +218,37 @@ private struct EmployeeRow: View {
         cloudItem?.status ?? .notChecked
     }
 
+    private var localStatus: SyncStatus {
+        cloudItem?.localSyncStatus ?? employee.syncStatus
+    }
+
+    private var syncIndicator: EmployeeSyncIndicator {
+        EmployeeSyncIndicator(cloudStatus: cloudStatus, localStatus: localStatus)
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             avatar
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(employee.fullName)
-                    .font(.body.weight(.semibold))
-                Text("\(employee.employeeCode) · \(employee.department)")
-                    .font(.caption)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if let cloudItem {
-                    Text(cloudItem.imsDateLine)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                    .lineLimit(1)
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                CloudStatusBadge(status: cloudStatus)
-                StatusBadge(status: cloudItem?.localSyncStatus ?? employee.syncStatus)
-                if employee.isEnrolled {
-                    Image(systemName: "faceid")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                }
-            }
+            Spacer(minLength: 8)
+            syncIndicator
         }
-        .padding(.vertical, 4)
+    }
+
+    private var subtitle: String {
+        if let cloudItem, !syncIndicator.isUpToDate {
+            return "\(employee.employeeCode) · \(cloudItem.imsDateLine)"
+        }
+        return "\(employee.employeeCode) · \(employee.department)"
     }
 
     @ViewBuilder
@@ -239,16 +258,16 @@ private struct EmployeeRow: View {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
-                .frame(width: 44, height: 44)
+                .frame(width: 50, height: 50)
                 .clipShape(Circle())
         } else {
             ZStack {
                 Circle()
-                    .fill(Color.cyan.opacity(0.2))
-                    .frame(width: 44, height: 44)
+                    .fill(Color(.systemGray5))
+                    .frame(width: 50, height: 50)
                 Text(initials)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.cyan)
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(Color(.systemGray))
             }
         }
     }
@@ -282,6 +301,17 @@ struct EmployeeDetailView: View {
         return "Not set — tap Edit to assign"
     }
 
+    private var syncSummaryText: String {
+        let local = cloudItem?.localSyncStatus ?? employee.syncStatus
+        let indicator = EmployeeSyncIndicator(cloudStatus: cloudStatus, localStatus: local)
+        if indicator.isUpToDate { return "Up to date on IMS" }
+        if local == .failed { return "Sync failed — pull down to retry" }
+        if local == .syncing { return "Syncing…" }
+        if cloudStatus == .needsUpload { return "Not on IMS — pull down to upload" }
+        if local == .pending { return "Pending upload" }
+        return "Pull down to sync"
+    }
+
     var body: some View {
         List {
             Section("Profile") {
@@ -290,11 +320,16 @@ struct EmployeeDetailView: View {
                 LabeledContent("Department", value: employee.department)
                 LabeledContent("Job site", value: assignedSiteLabel)
                 LabeledContent("Enrolled", value: employee.isEnrolled ? "Yes" : "No")
-                LabeledContent("IMS status") {
-                    CloudStatusBadge(status: cloudStatus)
-                }
-                if cloudStatus == .needsUpload {
-                    LabeledContent("Upload", value: employee.syncStatus.displayName)
+                LabeledContent("Sync") {
+                    HStack(spacing: 8) {
+                        EmployeeSyncIndicator(
+                            cloudStatus: cloudStatus,
+                            localStatus: cloudItem?.localSyncStatus ?? employee.syncStatus
+                        )
+                        Text(syncSummaryText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -327,18 +362,25 @@ struct EmployeeDetailView: View {
                         .foregroundStyle(.secondary)
                         .font(.subheadline)
                 } else {
-                    Text("Tap a photo to view full size.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12)
+                        ],
+                        spacing: 12
+                    ) {
                         ForEach(enrollmentPhotos, id: \.pose) { item in
                             if let image = UIImage(data: item.data) {
                                 VStack(spacing: 6) {
                                     EmployeePhotoPreview(image: image, title: item.pose.displayName)
-                                        .frame(height: 140)
-                                    Label(item.pose.displayName, systemImage: item.pose.systemImage)
-                                        .font(.caption)
+                                        .aspectRatio(1, contentMode: .fill)
+                                    Text(item.pose.displayName)
+                                        .font(.caption2)
                                         .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.85)
+                                        .frame(maxWidth: .infinity)
                                 }
                             }
                         }
@@ -411,46 +453,11 @@ private struct EmployeePhotoPreview: View {
                 .scaledToFill()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(alignment: .bottomTrailing) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(6)
-                        .background(.black.opacity(0.45), in: Circle())
-                        .padding(8)
-                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .fullScreenCover(isPresented: $showFullScreen) {
-            EmployeePhotoFullScreenView(image: image, title: title)
-        }
-    }
-}
-
-private struct EmployeePhotoFullScreenView: View {
-    @Environment(\.dismiss) private var dismiss
-    let image: UIImage
-    let title: String
-
-    var body: some View {
-        NavigationStack {
-            ScrollView([.horizontal, .vertical]) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding()
-            }
-            .background(Color.black)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
+            PhotoLightboxView(image: image, title: title)
         }
     }
 }

@@ -28,6 +28,8 @@ final class DTRViewModel {
         let timeOut: Date?
         let timeInAttendanceId: UUID?
         let timeOutAttendanceId: UUID?
+        let timeInCorrected: Bool
+        let timeOutCorrected: Bool
     }
 
     var dayTitle: String {
@@ -61,6 +63,8 @@ final class DTRViewModel {
                 var timeOut: Date?
                 var timeInAttendanceId: UUID?
                 var timeOutAttendanceId: UUID?
+                var timeInCorrected = false
+                var timeOutCorrected = false
             }
 
             var byEmployee: [UUID: Acc] = [:]
@@ -73,16 +77,19 @@ final class DTRViewModel {
                     timeInAttendanceId: nil,
                     timeOutAttendanceId: nil
                 )
+                let isManual = Self.isManualCorrection(record)
                 switch record.checkType {
                 case .checkIn:
                     if acc.timeIn == nil || record.timestamp < acc.timeIn! {
                         acc.timeIn = record.timestamp
                         acc.timeInAttendanceId = record.id
+                        acc.timeInCorrected = isManual
                     }
                 case .checkOut:
                     if acc.timeOut == nil || record.timestamp > acc.timeOut! {
                         acc.timeOut = record.timestamp
                         acc.timeOutAttendanceId = record.id
+                        acc.timeOutCorrected = isManual
                     }
                 }
                 byEmployee[record.employeeId] = acc
@@ -96,7 +103,9 @@ final class DTRViewModel {
                     timeIn: acc.timeIn,
                     timeOut: acc.timeOut,
                     timeInAttendanceId: acc.timeInAttendanceId,
-                    timeOutAttendanceId: acc.timeOutAttendanceId
+                    timeOutAttendanceId: acc.timeOutAttendanceId,
+                    timeInCorrected: acc.timeInCorrected,
+                    timeOutCorrected: acc.timeOutCorrected
                 )
             }
             .sorted { $0.employeeName.localizedCaseInsensitiveCompare($1.employeeName) == .orderedAscending }
@@ -107,9 +116,17 @@ final class DTRViewModel {
         }
     }
 
-    /// Upload pending punches only — fast pull-to-sync on DTR.
+    /// Upload pending punches and pull IMS corrections for the selected DTR day.
     func syncNow() async {
-        await syncQueue?.syncNow(mode: .quick, scope: .attendance)
+        await syncQueue?.syncNow(mode: .quick, scope: .attendance, dtrFocusDate: selectedDate)
         refresh()
+    }
+
+    private static func isManualCorrection(_ record: Attendance) -> Bool {
+        guard let notes = record.notes?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !notes.isEmpty else {
+            return false
+        }
+        return notes.localizedCaseInsensitiveContains("manual dtr")
     }
 }

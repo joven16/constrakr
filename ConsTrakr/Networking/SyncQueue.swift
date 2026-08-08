@@ -110,7 +110,7 @@ final class SyncQueue {
         await syncNow(mode: .full, scope: .all)
     }
 
-    func syncNow(mode: SyncMode = .full, scope: SyncScope = .all) async {
+    func syncNow(mode: SyncMode = .full, scope: SyncScope = .all, dtrFocusDate: Date? = nil) async {
         guard !isSyncing, let context else { return }
 
         lastSyncAttemptDate = Date()
@@ -146,7 +146,12 @@ final class SyncQueue {
         }
 
         do {
-            let summary = try await syncService.performPushSync(context: context, mode: mode, scope: scope)
+            let summary = try await syncService.performPushSync(
+                context: context,
+                mode: mode,
+                scope: scope,
+                dtrFocusDate: dtrFocusDate
+            )
             lastPushSummary = summary
             lastEmployeeSyncReport = summary.employeeSyncReport
             lastSyncDate = Date()
@@ -220,7 +225,7 @@ final class SyncQueue {
     private func syncProgressLabel(mode: SyncMode, scope: SyncScope) -> String {
         switch scope {
         case .attendance:
-            return "Uploading punches…"
+            return "Syncing DTR…"
         case .employees:
             return mode == .quick ? "Syncing employees…" : "Syncing…"
         case .all:

@@ -60,14 +60,15 @@ final class SyncService {
     func performPushSync(
         context: ModelContext,
         mode: SyncMode = .full,
-        scope: SyncScope = .all
+        scope: SyncScope = .all,
+        dtrFocusDate: Date? = nil
     ) async throws -> PushSyncSummary {
         guard NetworkMonitor.shared.isConnected else {
             throw NetworkError.offline
         }
 
         if scope == .attendance {
-            return try await performAttendanceOnlySync(context: context)
+            return try await performAttendanceOnlySync(context: context, dtrFocusDate: dtrFocusDate)
         }
 
         var summary = PushSyncSummary()
@@ -128,6 +129,7 @@ final class SyncService {
             if scope != .employees {
                 reportProgress("Checking IMS updates…")
                 try await reconcileRemoteAttendanceVoids(context: context)
+                try await pullRemoteAttendance(context: context, focusDate: dtrFocusDate)
             }
             reportProgress("Verifying roster…")
             summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
@@ -159,6 +161,7 @@ final class SyncService {
             try await uploadPendingAttendance(context: context)
             reportProgress("Checking IMS updates…")
             try await reconcileRemoteAttendanceVoids(context: context)
+            try await pullRemoteAttendance(context: context, focusDate: dtrFocusDate)
         }
 
         if summary.employeesPosted > 0
@@ -194,14 +197,120 @@ final class SyncService {
         return summary
     }
 
-    private func performAttendanceOnlySync(context: ModelContext) async throws -> PushSyncSummary {
+    private func performAttendanceOnlySync(
+        context: ModelContext,
+        dtrFocusDate: Date? = nil
+    ) async throws -> PushSyncSummary {
         await warmConnectionIfNeeded()
         reportProgress("Uploading punches…")
         try await uploadPendingAttendance(context: context)
         reportProgress("Checking IMS updates…")
         try await reconcileRemoteAttendanceVoids(context: context)
+        reportProgress("Downloading IMS DTR…")
+        try await pullRemoteAttendance(context: context, focusDate: dtrFocusDate)
         reportProgress(nil)
         return PushSyncSummary()
+    }
+
+    /// Imports IMS punches for the DTR day (including manual corrections) and prunes replaced rows.
+    private func pullRemoteAttendance(context: ModelContext, focusDate: Date?) async throws {
+        let calendar = Calendar.current
+        let rangeStart: Date
+        let rangeEnd: Date
+        if let focusDate {
+            rangeStart = calendar.startOfDay(for: focusDate)
+            rangeEnd = rangeStart
+        } else if let recent = calendar.date(byAdding: .day, value: -14, to: Date()) {
+            rangeStart = calendar.startOfDay(for: recent)
+            rangeEnd = calendar.startOfDay(for: Date())
+        } else {
+            return
+        }
+
+        let remoteRows = try await api.getAttendance(
+            employeeServerId: nil,
+            startDate: rangeStart,
+            endDate: rangeEnd,
+            includeMedia: false
+        )
+        let activeRows = remoteRows.filter { !$0.isVoid }
+        guard !activeRows.isEmpty || focusDate != nil else { return }
+
+        let empRepo = EmployeeRepository(context: context)
+        let attRepo = AttendanceRepository(context: context)
+        var localIdByServerId: [String: UUID] = [:]
+        for employee in try empRepo.fetchAll() {
+            if let serverId = APIDecoding.normalizedServerId(employee.serverId) {
+                localIdByServerId[serverId] = employee.id
+            }
+        }
+
+        var changed = false
+
+        if let focusDate {
+            let dayStart = calendar.startOfDay(for: focusDate)
+            let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)?
+                .addingTimeInterval(-0.001) ?? dayStart
+            let remoteServerIds = Set(
+                activeRows.compactMap { APIDecoding.normalizedServerId($0.serverId) }
+            )
+            let localDayRecords = try attRepo.fetchAll(from: dayStart, to: dayEnd)
+            for local in localDayRecords {
+                guard let serverId = APIDecoding.normalizedServerId(local.serverId) else { continue }
+                if !remoteServerIds.contains(serverId) {
+                    try attRepo.delete(local, persist: false)
+                    changed = true
+                }
+            }
+        }
+
+        for dto in activeRows {
+            guard let localEmployeeId = try resolveRestoreEmployeeId(
+                dtoEmployeeServerId: dto.employeeServerId,
+                dtoEmployeeLocalId: dto.employeeLocalId,
+                localIdByServerId: localIdByServerId,
+                empRepo: empRepo
+            ) else { continue }
+
+            let normalizedServerId = APIDecoding.normalizedServerId(dto.serverId)
+            if let normalizedServerId,
+               let existing = try attRepo.fetch(serverId: normalizedServerId) {
+                if existing.timestamp != dto.timestamp || existing.notes != dto.notes {
+                    existing.timestamp = dto.timestamp
+                    existing.notes = dto.notes
+                    changed = true
+                }
+                continue
+            }
+
+            if let existing = try attRepo.fetch(localId: dto.localId) {
+                if existing.serverId == nil, let normalizedServerId {
+                    existing.serverId = normalizedServerId
+                    existing.syncStatus = .synced
+                    changed = true
+                }
+                continue
+            }
+
+            let record = Attendance(
+                id: dto.localId,
+                serverId: normalizedServerId,
+                employeeId: localEmployeeId,
+                employeeServerId: dto.employeeServerId,
+                checkType: CheckType(rawValue: dto.checkType) ?? .checkIn,
+                timestamp: dto.timestamp,
+                syncStatus: .synced,
+                confidenceScore: dto.confidenceScore,
+                notes: dto.notes
+            )
+            context.insert(record)
+            changed = true
+        }
+
+        if changed {
+            try persist(context)
+            NotificationCenter.default.post(name: AppConstants.Notifications.attendanceDidChange, object: nil)
+        }
     }
 
     /// Removes local punches voided on IMS so DTR and scanner stay aligned.

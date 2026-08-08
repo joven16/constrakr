@@ -32,7 +32,6 @@ final class EmployeeService {
     }
 
     func register(
-        employeeCode: String,
         firstName: String,
         lastName: String,
         department: String,
@@ -43,22 +42,18 @@ final class EmployeeService {
         idDocumentType: IdDocumentType? = nil,
         idDocumentNumber: String = "",
         idDocumentCapturedAt: Date? = nil,
-        idDocumentImage: UIImage? = nil
+        idDocumentImage: UIImage? = nil,
+        registeredAt: Date = Date()
     ) throws -> Employee {
-        let code = employeeCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let last = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
         let dept = department.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !code.isEmpty else { throw ServiceError.invalidInput("Employee code is required.") }
         guard !first.isEmpty else { throw ServiceError.invalidInput("First name is required.") }
         guard !last.isEmpty else { throw ServiceError.invalidInput("Last name is required.") }
         guard !embeddings.isEmpty else { throw ServiceError.invalidInput("Face enrollment is required.") }
 
-        // Duplicate: Employee ID / code
-        if try repository.fetch(code: code) != nil {
-            throw ServiceError.duplicateCode
-        }
+        let code = try allocateEmployeeCode(registeredAt: registeredAt)
 
         // Duplicate: full name
         if try repository.fetchByFullName(firstName: first, lastName: last) != nil {
@@ -159,30 +154,23 @@ final class EmployeeService {
 
     func updateProfile(
         employee: Employee,
-        employeeCode: String,
         firstName: String,
         lastName: String,
         department: String,
         assignedSiteId: UUID?
     ) throws {
-        let code = employeeCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let last = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
         let dept = department.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !code.isEmpty else { throw ServiceError.invalidInput("Employee code is required.") }
         guard !first.isEmpty else { throw ServiceError.invalidInput("First name is required.") }
         guard !last.isEmpty else { throw ServiceError.invalidInput("Last name is required.") }
 
-        if let other = try repository.fetch(code: code), other.id != employee.id {
-            throw ServiceError.duplicateCode
-        }
         if let other = try repository.fetchByFullName(firstName: first, lastName: last),
            other.id != employee.id {
             throw ServiceError.duplicateName
         }
 
-        employee.employeeCode = code
         employee.firstName = first
         employee.lastName = last
         employee.department = dept.isEmpty ? "General" : dept
@@ -258,11 +246,27 @@ final class EmployeeService {
         try repository.count()
     }
 
+    private func allocateEmployeeCode(registeredAt: Date) throws -> String {
+        let monthPrefix = EmployeeCodeGenerator.monthPrefix(for: registeredAt)
+        var knownCodes = try repository.fetchEmployeeCodes(withPrefix: monthPrefix)
+
+        for _ in 0..<32 {
+            let candidate = EmployeeCodeGenerator.generate(existingCodes: knownCodes, registeredAt: registeredAt)
+            if try repository.fetch(code: candidate) == nil {
+                return candidate
+            }
+            knownCodes.append(candidate)
+        }
+
+        throw ServiceError.codeGenerationFailed
+    }
+
     enum ServiceError: LocalizedError {
         case invalidInput(String)
         case duplicateCode
         case duplicateName
         case duplicateFace(name: String, code: String)
+        case codeGenerationFailed
 
         var errorDescription: String? {
             switch self {
@@ -271,6 +275,8 @@ final class EmployeeService {
             case .duplicateName: return "An employee with this name already exists."
             case .duplicateFace(let name, let code):
                 return "This face already belongs to \(name) (\(code))."
+            case .codeGenerationFailed:
+                return "Could not assign a new employee ID. Try again."
             }
         }
     }

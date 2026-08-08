@@ -81,11 +81,6 @@ struct EmployeeRegistrationView: View {
     private var detailsStep: some View {
         Form {
             Section {
-                TextField("Employee Code", text: $viewModel.employeeCode)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .textContentType(.username)
-
                 TextField("First Name", text: $viewModel.firstName)
                     .textContentType(.givenName)
 
@@ -99,7 +94,7 @@ struct EmployeeRegistrationView: View {
             } header: {
                 Text("Employee Information")
             } footer: {
-                Text("Assign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
+                Text("Employee ID is assigned automatically when registration completes (YYYYMM + sequence, e.g. 202608001).\n\nAssign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
             }
         }
         .scrollContentBackground(.hidden)
