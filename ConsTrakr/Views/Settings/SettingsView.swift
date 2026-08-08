@@ -23,7 +23,7 @@ struct SettingsView: View {
     }
 
     private var settingsForm: some View {
-        Form {
+        List {
             appearanceSection
             statusSection
             syncSection
@@ -31,8 +31,10 @@ struct SettingsView: View {
             configurationSection
             aboutSection
         }
+        .listStyle(.insetGrouped)
         .navigationTitle("Settings")
-        .onAppear {
+        .task {
+            await AdminSession.shared.restorePersistedSession()
             viewModel.configure(syncQueue: syncQueue)
         }
         .onChange(of: syncQueue.pendingCount) { _, _ in
@@ -58,11 +60,7 @@ struct SettingsView: View {
             viewModel.refresh()
         }
         .refreshable {
-            if viewModel.isAdminAuthenticated {
-                await viewModel.syncNowFull()
-            } else {
-                viewModel.refresh()
-            }
+            await viewModel.syncNowQuick()
         }
         .alert("Test cloud restore?", isPresented: $showRestoreTestConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -227,14 +225,10 @@ struct SettingsView: View {
         Section("About") {
             LabeledContent("App", value: AppConstants.appName)
             LabeledContent("Face model", value: MatchThresholdSettings.engineName)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Credits")
-                    .font(.subheadline.weight(.semibold))
-                Text("by Joven Lusterio")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 2)
+            Text("Developed and owned by Joven Lusterio")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 2)
         }
     }
 

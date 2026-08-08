@@ -11,6 +11,7 @@ enum NetworkError: LocalizedError {
     case invalidResponse
     case unauthorized
     case serverError(statusCode: Int, message: String?)
+    case deviceBlocked(reason: String?)
     case decodingFailed(message: String? = nil)
     case encodingFailed
 
@@ -26,6 +27,11 @@ enum NetworkError: LocalizedError {
             return "Sign in under Settings with your sync admin account before syncing."
         case .serverError(let code, let message):
             return message ?? "Server error (\(code))."
+        case .deviceBlocked(let reason):
+            if let reason, !reason.isEmpty {
+                return reason
+            }
+            return "This device has been disabled by your administrator."
         case .decodingFailed(let message):
             return message ?? "Failed to decode server response."
         case .encodingFailed:

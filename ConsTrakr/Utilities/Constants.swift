@@ -74,6 +74,9 @@ enum AppConstants {
         static let deviceCustomName = "sync.deviceCustomName"
         static let deviceAssignedUserName = "sync.deviceAssignedUserName"
         static let deviceAssignedUserUsername = "sync.deviceAssignedUserUsername"
+        static let deviceAssignedUsersJSON = "sync.deviceAssignedUsersJSON"
+        static let deviceIsBlocked = "sync.deviceIsBlocked"
+        static let deviceBlockedReason = "sync.deviceBlockedReason"
         static let deviceAdminCodeRequired = "sync.deviceAdminCodeRequired"
     }
 

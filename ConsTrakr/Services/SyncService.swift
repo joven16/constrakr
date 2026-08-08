@@ -72,6 +72,9 @@ final class SyncService {
         }
 
         await syncDeviceRegistration()
+        if DeviceStore.isBlocked {
+            throw NetworkError.deviceBlocked(reason: DeviceStore.blockedReason)
+        }
 
         var summary = PushSyncSummary()
         let empRepo = EmployeeRepository(context: context)
@@ -205,6 +208,10 @@ final class SyncService {
         context: ModelContext,
         dtrFocusDate: Date? = nil
     ) async throws -> PushSyncSummary {
+        await syncDeviceRegistration()
+        if DeviceStore.isBlocked {
+            throw NetworkError.deviceBlocked(reason: DeviceStore.blockedReason)
+        }
         await warmConnectionIfNeeded()
         reportProgress("Uploading punches…")
         try await uploadPendingAttendance(context: context)
@@ -1113,6 +1120,11 @@ final class SyncService {
                 group.addTask { try await upload(item) }
             }
         }
+    }
+
+    /// Registers this installation with the server and refreshes assigned-user admin code state.
+    func refreshDeviceRegistration() async {
+        await syncDeviceRegistration()
     }
 
     /// Registers this installation with the server and refreshes assigned-user admin code state.

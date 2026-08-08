@@ -20,6 +20,9 @@ struct EmployeeEditView: View {
     @State private var assignedSiteId: UUID?
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var isAdminVerified = false
+    @State private var showAdminCodePrompt = false
+    @State private var adminGateError: String?
 
     private var isFormValid: Bool {
         !firstName.trimmingCharacters(in: .whitespaces).isEmpty
@@ -28,6 +31,46 @@ struct EmployeeEditView: View {
     }
 
     var body: some View {
+        Group {
+            if isAdminVerified {
+                editForm
+            } else {
+                adminGatePlaceholder
+            }
+        }
+        .navigationTitle("Edit Employee")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            guard !isAdminVerified else { return }
+            presentAdminGateIfNeeded()
+        }
+        .fullScreenCover(isPresented: $showAdminCodePrompt) {
+            AdminCodePromptSheet(
+                title: "Edit employee",
+                message: "Enter the admin code to edit employee records on this device.",
+                onConfirm: { code in
+                    try await AdminCodeService.verify(passcode: code)
+                    isAdminVerified = true
+                    showAdminCodePrompt = false
+                    adminGateError = nil
+                },
+                onCancel: {
+                    showAdminCodePrompt = false
+                    dismiss()
+                }
+            )
+        }
+    }
+
+    private var adminGatePlaceholder: some View {
+        ContentUnavailableView {
+            Label("Admin code required", systemImage: "lock.fill")
+        } description: {
+            Text(adminGateError ?? "Enter the 6-digit admin code to edit this employee.")
+        }
+    }
+
+    private var editForm: some View {
         Form {
             Section {
                 LabeledContent("Employee Code", value: employee.employeeCode)
@@ -53,8 +96,6 @@ struct EmployeeEditView: View {
                 Text("Pick where this employee must be for Time In / Time Out. Choose “None” to use the app default site from Settings.")
             }
         }
-        .navigationTitle("Edit Employee")
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
@@ -71,7 +112,6 @@ struct EmployeeEditView: View {
             assignedSiteId = employee.assignedSiteId
         }
         .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
-            // Refresh picker when sites are added or edited elsewhere.
             if assignedSiteId != nil, JobSiteStore.site(id: assignedSiteId) == nil {
                 assignedSiteId = nil
             }
@@ -83,6 +123,16 @@ struct EmployeeEditView: View {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    private func presentAdminGateIfNeeded() {
+        adminGateError = nil
+        do {
+            try AdminCodeService.ensureChangeAllowed()
+            showAdminCodePrompt = true
+        } catch {
+            adminGateError = error.localizedDescription
         }
     }
 

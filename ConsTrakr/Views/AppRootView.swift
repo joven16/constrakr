@@ -16,6 +16,8 @@ struct AppRootView: View {
     @Bindable var syncQueue: SyncQueue
     @Bindable var tabRouter: AppTabRouter
 
+    @State private var isDeviceBlocked = DeviceStore.isBlocked
+
     var body: some View {
         MainTabView()
             .environment(syncQueue)
@@ -36,12 +38,24 @@ struct AppRootView: View {
                 }
                 BackgroundSyncScheduler.scheduleNextSync()
                 _ = NetworkMonitor.shared
+                isDeviceBlocked = DeviceStore.isBlocked
+                Task { await syncQueue.refreshDeviceAccessStatus() }
             }
             .onChange(of: scenePhase) { _, phase in
-                // Keep the BG refresh chain alive; do not sync on resume or background.
+                if phase == .active {
+                    isDeviceBlocked = DeviceStore.isBlocked
+                    Task { await syncQueue.refreshDeviceAccessStatus() }
+                }
                 if phase == .active || phase == .background {
                     BackgroundSyncScheduler.scheduleNextSync()
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: DeviceStore.deviceDidChangeNotification)) { _ in
+                isDeviceBlocked = DeviceStore.isBlocked
+            }
+            .fullScreenCover(isPresented: $isDeviceBlocked) {
+                DeviceBlockedView()
+                    .environment(syncQueue)
             }
     }
 }

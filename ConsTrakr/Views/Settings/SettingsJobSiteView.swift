@@ -9,15 +9,23 @@ struct SettingsJobSiteView: View {
     @Bindable var viewModel: SettingsViewModel
 
     @State private var showAdminCodePrompt = false
-    @State private var pendingDefaultSiteId: UUID?
+    @State private var pendingAction: AdminGatePendingAction?
     @State private var adminGateError: String?
+
+    private enum AdminGatePendingAction {
+        case defaultSite(UUID?)
+        case geofence(Bool)
+    }
 
     var body: some View {
         Form {
             Section {
-                Toggle("Require on-site GPS", isOn: $viewModel.siteGeofenceEnabled)
+                Toggle("Require on-site GPS", isOn: Binding(
+                    get: { viewModel.siteGeofenceEnabled },
+                    set: { requestGeofenceChange(to: $0) }
+                ))
             } footer: {
-                Text("When on, the scanner tab is blocked until the phone is at the default job site.")
+                Text("When on, the scanner tab is blocked until the phone is at the default job site. Turning this on or off requires a 6-digit admin code.")
             }
 
             Section {
@@ -47,14 +55,17 @@ struct SettingsJobSiteView: View {
                         LabeledContent("Radius", value: "\(Int(site.radiusMeters.rounded())) m")
                         LabeledContent("Coordinates", value: String(format: "%.4f, %.4f", site.latitude, site.longitude))
                     }
-                    if let operatorName = DeviceStore.assignedUserName ?? DeviceStore.assignedUserUsername {
-                        LabeledContent("Device operator", value: operatorName)
+                    if !DeviceStore.assignedUserLabels.isEmpty {
+                        LabeledContent("Device operators") {
+                            Text(DeviceStore.assignedUserLabels.joined(separator: ", "))
+                                .multilineTextAlignment(.trailing)
+                        }
                     }
                 }
             } header: {
                 Text("Default Job Site")
             } footer: {
-                Text("Changing the default site requires the admin code of the user assigned to this device on the web dashboard.")
+                Text("Changing the default site requires a 6-digit admin code from any user assigned to this device on the web dashboard.")
             }
 
             if let adminGateError {
@@ -73,25 +84,52 @@ struct SettingsJobSiteView: View {
         .onReceive(NotificationCenter.default.publisher(for: DeviceStore.deviceDidChangeNotification)) { _ in
             adminGateError = nil
         }
-        .sheet(isPresented: $showAdminCodePrompt) {
+        .fullScreenCover(isPresented: $showAdminCodePrompt) {
             AdminCodePromptSheet(
-                title: "Change default site",
-                message: "Enter the admin code to change which job site this device uses for attendance and DTR.",
-                confirmLabel: "Confirm",
+                title: adminPromptTitle,
+                message: adminPromptMessage,
                 onConfirm: { code in
                     try await AdminCodeService.verify(passcode: code)
-                    if let pendingDefaultSiteId {
-                        viewModel.applyDefaultJobSiteChange(to: pendingDefaultSiteId)
+                    switch pendingAction {
+                    case .defaultSite(let siteId):
+                        viewModel.applyDefaultJobSiteChange(to: siteId)
+                    case .geofence(let enabled):
+                        viewModel.applyGeofenceChange(enabled: enabled)
+                    case nil:
+                        break
                     }
                     showAdminCodePrompt = false
-                    self.pendingDefaultSiteId = nil
+                    pendingAction = nil
                     adminGateError = nil
                 },
                 onCancel: {
-                    pendingDefaultSiteId = nil
+                    pendingAction = nil
                     showAdminCodePrompt = false
                 }
             )
+        }
+    }
+
+    private var adminPromptTitle: String {
+        switch pendingAction {
+        case .geofence:
+            return "Change GPS requirement"
+        case .defaultSite, nil:
+            return "Change default site"
+        }
+    }
+
+    private var adminPromptMessage: String {
+        switch pendingAction {
+        case .geofence(let enabled):
+            if enabled {
+                return "Enter the admin code to require on-site GPS before attendance scans."
+            }
+            return "Enter the admin code to turn off on-site GPS for attendance scans."
+        case .defaultSite:
+            return "Enter the admin code to change which job site this device uses for attendance and DTR."
+        case nil:
+            return "Enter the admin code to continue."
         }
     }
 
@@ -100,7 +138,19 @@ struct SettingsJobSiteView: View {
         adminGateError = nil
         do {
             try AdminCodeService.ensureChangeAllowed()
-            pendingDefaultSiteId = newId
+            pendingAction = .defaultSite(newId)
+            showAdminCodePrompt = true
+        } catch {
+            adminGateError = error.localizedDescription
+        }
+    }
+
+    private func requestGeofenceChange(to enabled: Bool) {
+        guard enabled != viewModel.siteGeofenceEnabled else { return }
+        adminGateError = nil
+        do {
+            try AdminCodeService.ensureChangeAllowed()
+            pendingAction = .geofence(enabled)
             showAdminCodePrompt = true
         } catch {
             adminGateError = error.localizedDescription

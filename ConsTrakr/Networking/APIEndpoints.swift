@@ -853,6 +853,20 @@ struct DeviceRegisterRequest: Codable {
     }
 }
 
+struct DeviceAssignedUserDTO: Decodable {
+    let id: Int?
+    let name: String?
+    let username: String?
+    let adminCodeSet: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case username
+        case adminCodeSet = "admin_code_set"
+    }
+}
+
 struct DeviceDTO: Codable {
     let id: UUID?
     let localId: UUID
@@ -860,7 +874,28 @@ struct DeviceDTO: Codable {
     let appVersion: String?
     let assignedUserName: String?
     let assignedUserUsername: String?
+    let assignedUsers: [DeviceAssignedUserDTO]?
     let adminCodeRequired: Bool
+    let isBlocked: Bool
+    let blockedReason: String?
+
+    var assignedUserLabels: [String] {
+        if let assignedUsers, !assignedUsers.isEmpty {
+            return assignedUsers.compactMap { user in
+                let label = (user.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                    ? user.name
+                    : user.username
+                return label?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? label : nil
+            }
+        }
+        if let assignedUserName, !assignedUserName.isEmpty {
+            return [assignedUserName]
+        }
+        if let assignedUserUsername, !assignedUserUsername.isEmpty {
+            return [assignedUserUsername]
+        }
+        return []
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -869,7 +904,10 @@ struct DeviceDTO: Codable {
         case appVersion = "app_version"
         case assignedUserName = "assigned_user_name"
         case assignedUserUsername = "assigned_user_username"
+        case assignedUsers = "assigned_users"
         case adminCodeRequired = "admin_code_required"
+        case isBlocked = "is_blocked"
+        case blockedReason = "blocked_reason"
     }
 
     init(from decoder: Decoder) throws {
@@ -886,7 +924,10 @@ struct DeviceDTO: Codable {
         appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
         assignedUserName = try container.decodeIfPresent(String.self, forKey: .assignedUserName)
         assignedUserUsername = try container.decodeIfPresent(String.self, forKey: .assignedUserUsername)
+        assignedUsers = try container.decodeIfPresent([DeviceAssignedUserDTO].self, forKey: .assignedUsers)
         adminCodeRequired = try container.decodeIfPresent(Bool.self, forKey: .adminCodeRequired) ?? false
+        isBlocked = try container.decodeIfPresent(Bool.self, forKey: .isBlocked) ?? false
+        blockedReason = try container.decodeIfPresent(String.self, forKey: .blockedReason)
     }
 }
 

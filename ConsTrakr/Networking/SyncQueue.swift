@@ -186,9 +186,19 @@ final class SyncQueue {
             lastError = "Server sign-in expired or invalid. Sign in again under Settings."
         } catch NetworkError.offline {
             lastError = NetworkError.offline.localizedDescription
+        } catch NetworkError.deviceBlocked(let reason) {
+            lastError = reason ?? DeviceAccessGuard.blockedMessage
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// Pulls the latest block/unblock state from the server for this device.
+    func refreshDeviceAccessStatus() async {
+        guard AdminSession.shared.isAuthenticated else { return }
+        guard await APIService.shared.hasAuthToken() else { return }
+        guard NetworkMonitor.shared.isConnected else { return }
+        await syncService.refreshDeviceRegistration()
     }
 
     /// Admin restore entry point used by Settings.

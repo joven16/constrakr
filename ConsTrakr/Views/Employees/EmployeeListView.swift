@@ -146,11 +146,13 @@ struct EmployeeListView: View {
 
     @ToolbarContentBuilder
     private var registerToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            NavigationLink {
-                EmployeeRegistrationView()
-            } label: {
-                Label("Register", systemImage: "person.crop.circle.badge.plus")
+        if !DeviceAccessGuard.isBlocked {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    EmployeeRegistrationView()
+                } label: {
+                    Label("Register", systemImage: "person.crop.circle.badge.plus")
+                }
             }
         }
     }

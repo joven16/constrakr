@@ -27,8 +27,42 @@ enum DeviceStore {
         UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.deviceAssignedUserUsername)
     }
 
+    static var assignedUserLabels: [String] {
+        if let data = UserDefaults.standard.data(forKey: AppConstants.UserDefaultsKeys.deviceAssignedUsersJSON),
+           let labels = try? JSONDecoder().decode([String].self, from: data),
+           !labels.isEmpty {
+            return labels
+        }
+        if let assigned = assignedUserName ?? assignedUserUsername {
+            return [assigned]
+        }
+        return []
+    }
+
+    static var hasAssignedUsers: Bool {
+        !assignedUserLabels.isEmpty
+    }
+
     static var adminCodeRequired: Bool {
         UserDefaults.standard.bool(forKey: AppConstants.UserDefaultsKeys.deviceAdminCodeRequired)
+    }
+
+    static var isBlocked: Bool {
+        UserDefaults.standard.bool(forKey: AppConstants.UserDefaultsKeys.deviceIsBlocked)
+    }
+
+    static var blockedReason: String? {
+        UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.deviceBlockedReason)
+    }
+
+    static func applyBlockState(isBlocked: Bool, reason: String?) {
+        UserDefaults.standard.set(isBlocked, forKey: AppConstants.UserDefaultsKeys.deviceIsBlocked)
+        if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            UserDefaults.standard.set(reason, forKey: AppConstants.UserDefaultsKeys.deviceBlockedReason)
+        } else {
+            UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.deviceBlockedReason)
+        }
+        postChange()
     }
 
     /// Stored device label — required before sync pushes to the web Devices list.
@@ -72,10 +106,17 @@ enum DeviceStore {
             UserDefaults.standard.set(device.assignedUserName, forKey: AppConstants.UserDefaultsKeys.deviceAssignedUserName)
             UserDefaults.standard.set(device.assignedUserUsername, forKey: AppConstants.UserDefaultsKeys.deviceAssignedUserUsername)
             UserDefaults.standard.set(device.adminCodeRequired, forKey: AppConstants.UserDefaultsKeys.deviceAdminCodeRequired)
+            applyBlockState(isBlocked: device.isBlocked, reason: device.blockedReason)
+            let labels = device.assignedUserLabels
+            if let data = try? JSONEncoder().encode(labels) {
+                UserDefaults.standard.set(data, forKey: AppConstants.UserDefaultsKeys.deviceAssignedUsersJSON)
+            }
         } else {
             UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.deviceAssignedUserName)
             UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.deviceAssignedUserUsername)
+            UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.deviceAssignedUsersJSON)
             UserDefaults.standard.set(false, forKey: AppConstants.UserDefaultsKeys.deviceAdminCodeRequired)
+            applyBlockState(isBlocked: false, reason: nil)
         }
         postChange()
     }

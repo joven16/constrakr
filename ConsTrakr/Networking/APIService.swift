@@ -596,7 +596,7 @@ actor APIService {
         )
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if isDemoHost {
-            guard passcode.count >= 4 else {
+            guard passcode.count == AdminCodeConstants.digitCount else {
                 return DeviceAdminCodeVerifyResponse(valid: false, error: "invalid_passcode", assignedUserName: nil)
             }
             return DeviceAdminCodeVerifyResponse(valid: true, error: nil, assignedUserName: "Demo Admin")
@@ -609,6 +609,17 @@ actor APIService {
         }
         try validate(data: data, response: response)
         return try JSONDecoder.api.decode(DeviceAdminCodeVerifyResponse.self, from: data)
+    }
+
+    private static func parseDeviceBlockedReason(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let errorCode = object["error"] as? String
+        let isBlocked = object["is_blocked"] as? Bool ?? false
+        guard errorCode == "device_blocked" || isBlocked else { return nil }
+        let reason = (object["blocked_reason"] as? String) ?? (object["message"] as? String)
+        return reason
     }
 
     private func demoDevice() -> DeviceDTO {
@@ -715,6 +726,7 @@ actor APIService {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if endpoint.requiresAuth, let authToken {
             request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(DeviceStore.localId.uuidString, forHTTPHeaderField: "X-Device-Local-Id")
         } else if endpoint.requiresAuth {
             throw NetworkError.unauthorized
         }
@@ -729,6 +741,12 @@ actor APIService {
             authToken = nil
             SyncAuthStore.clear()
             throw NetworkError.unauthorized
+        }
+        if http.statusCode == 403, let data {
+            if let blockedReason = Self.parseDeviceBlockedReason(from: data) {
+                DeviceStore.applyBlockState(isBlocked: true, reason: blockedReason)
+                throw NetworkError.deviceBlocked(reason: blockedReason)
+            }
         }
         guard (200..<300).contains(http.statusCode) else {
             let snippet = data.flatMap { String(data: $0, encoding: .utf8) }?

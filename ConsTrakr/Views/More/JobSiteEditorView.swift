@@ -130,11 +130,10 @@ struct JobSiteEditorView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .sheet(isPresented: $showAdminCodePrompt) {
+        .fullScreenCover(isPresented: $showAdminCodePrompt) {
             AdminCodePromptSheet(
                 title: "Set default site",
                 message: "Enter the admin code to make this the default job site on this device.",
-                confirmLabel: "Confirm",
                 onConfirm: { code in
                     try await AdminCodeService.verify(passcode: code)
                     if let pendingSite {

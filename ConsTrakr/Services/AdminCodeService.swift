@@ -20,9 +20,9 @@ enum AdminCodeError: LocalizedError {
         case .notRegistered:
             return "This device is not registered yet. Sign in and sync first."
         case .noAssignedUser:
-            return "No user is assigned to this device. Assign one under Devices on the web dashboard."
+            return "No users are assigned to this device. Assign one or more under Devices on the web dashboard."
         case .adminCodeNotSet:
-            return "The assigned user has not set an admin code. They can set it under Profile → Edit Profile."
+            return "None of the assigned users has set a 6-digit admin code. They can set it under Profile → Edit Profile."
         case .invalidPasscode:
             return "Incorrect admin code."
         case .serverMessage(let message):
@@ -34,15 +34,18 @@ enum AdminCodeError: LocalizedError {
 @MainActor
 enum AdminCodeService {
     static func ensureChangeAllowed() throws {
+        guard DeviceStore.hasAssignedUsers else {
+            throw AdminCodeError.noAssignedUser
+        }
         guard DeviceStore.adminCodeRequired else {
-            if DeviceStore.assignedUserName == nil && DeviceStore.assignedUserUsername == nil {
-                throw AdminCodeError.noAssignedUser
-            }
             throw AdminCodeError.adminCodeNotSet
         }
     }
 
     static func verify(passcode: String) async throws {
+        guard passcode.count == AdminCodeConstants.digitCount, passcode.allSatisfy(\.isNumber) else {
+            throw AdminCodeError.invalidPasscode
+        }
         guard NetworkMonitor.shared.isConnected else {
             throw AdminCodeError.offline
         }

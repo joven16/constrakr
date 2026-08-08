@@ -117,6 +117,7 @@ final class SettingsViewModel {
 
     var siteGeofenceEnabled: Bool {
         didSet {
+            if isApplyingGeofenceFromStore { return }
             if siteGeofenceEnabled && !JobSiteStore.hasConfiguredSites {
                 siteGeofenceEnabled = false
                 statusMessage = "Add a job site under More → Job Sites first."
@@ -124,6 +125,14 @@ final class SettingsViewModel {
             }
             SiteGeofenceSettings.isEnabled = siteGeofenceEnabled
         }
+    }
+
+    private var isApplyingGeofenceFromStore = false
+
+    func applyGeofenceChange(enabled: Bool) {
+        isApplyingGeofenceFromStore = true
+        siteGeofenceEnabled = enabled
+        isApplyingGeofenceFromStore = false
     }
 
     var defaultJobSiteId: UUID?
@@ -207,6 +216,7 @@ final class SettingsViewModel {
     }
 
     func refresh() {
+        isAdminAuthenticated = AdminSession.shared.isAuthenticated
         pendingCount = syncQueue?.pendingCount ?? 0
         lastSyncDate = syncQueue?.lastSyncDate
         isSyncing = syncQueue?.isSyncing ?? false
@@ -346,16 +356,23 @@ final class SettingsViewModel {
     }
 
     func syncNowFull() async {
-        guard AdminSession.shared.isAuthenticated else {
-            statusMessage = "Sign in as admin before syncing."
-            return
-        }
-        await syncQueue?.syncNow(mode: .full)
+        await syncNow(mode: .full)
+    }
+
+    /// Pull-to-sync — same scope as Job Sites, Employees, and DTR.
+    func syncNowQuick() async {
+        await syncNow(mode: .quick)
+    }
+
+    private func syncNow(mode: SyncMode) async {
+        await syncQueue?.syncNow(mode: mode, scope: .all)
         refresh()
         if let error = syncQueue?.lastError, !error.isEmpty {
             statusMessage = error
-        } else {
+        } else if AdminSession.shared.isAuthenticated {
             statusMessage = syncQueue?.lastPushSummary?.successMessage ?? "Sync complete."
+        } else {
+            statusMessage = "Sign in under Sync account before syncing."
         }
     }
 
