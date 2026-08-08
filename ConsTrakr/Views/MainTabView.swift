@@ -7,6 +7,7 @@ import SwiftUI
 
 struct MainTabView: View {
     @Environment(AppTabRouter.self) private var tabRouter
+    @Environment(SyncQueue.self) private var syncQueue
 
     var body: some View {
         @Bindable var tabRouter = tabRouter
@@ -16,6 +17,7 @@ struct MainTabView: View {
                 .tabItem {
                     Label("Dashboard", systemImage: "square.grid.2x2.fill")
                 }
+                .badge(syncQueue.pendingCount > 0 ? syncQueue.pendingCount : 0)
                 .tag(AppTabRouter.Tab.dashboard)
 
             EmployeeListView()

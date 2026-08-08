@@ -30,6 +30,7 @@ enum APIEndpoint {
     case postJobSite
     case putJobSite(String)
     case deleteJobSite(String)
+    case getDepartments
     // Auth / health (restore gate)
     case adminLogin
     case healthCheck
@@ -54,6 +55,8 @@ enum APIEndpoint {
             return "\(Self.root)/job-sites"
         case .putJobSite(let siteId), .deleteJobSite(let siteId):
             return "\(Self.root)/job-sites/\(siteId)"
+        case .getDepartments:
+            return "\(Self.root)/departments"
         case .adminLogin:
             return "\(Self.root)/auth/admin/login"
         case .healthCheck:
@@ -137,7 +140,7 @@ enum APIEndpoint {
             return "PUT"
         case .deleteEmployee, .deleteJobSite:
             return "DELETE"
-        case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getEmployeeIdDocuments, .getAttendance, .getJobSites, .healthCheck:
+        case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getEmployeeIdDocuments, .getAttendance, .getJobSites, .getDepartments, .healthCheck:
             return "GET"
         }
     }
@@ -283,6 +286,32 @@ struct EmployeeDTO: Codable, Identifiable {
         try container.encodeIfPresent(encryptedDepthSignatureBase64, forKey: .encryptedDepthSignatureBase64)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(createdAt, forKey: .createdAt)
+    }
+}
+
+struct DepartmentsResponse: Codable {
+    let defaults: [String]
+    let custom: [DepartmentOptionDTO]
+    let options: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case defaults
+        case custom
+        case options
+    }
+}
+
+struct DepartmentOptionDTO: Codable, Identifiable {
+    let id: UUID
+    let name: String
+    let sortOrder: Int
+    let updatedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case sortOrder = "sort_order"
+        case updatedAt = "updated_at"
     }
 }
 

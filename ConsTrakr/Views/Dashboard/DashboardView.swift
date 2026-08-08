@@ -12,88 +12,20 @@ struct DashboardView: View {
     @Environment(AppTabRouter.self) private var tabRouter
     @State private var viewModel = DashboardViewModel()
 
+    private var todayTitle: String {
+        Date().formatted(date: .complete, time: .omitted)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        StatCard(
-                            title: "Employees",
-                            value: "\(viewModel.employeeCount)",
-                            systemImage: "person.3.fill",
-                            tint: .cyan,
-                            action: { tabRouter.selectedTab = .employees }
-                        )
-                        StatCard(
-                            title: "Today",
-                            value: "\(viewModel.todayAttendanceCount)",
-                            systemImage: "calendar",
-                            tint: .mint,
-                            action: { tabRouter.selectedTab = .dtr }
-                        )
-                        StatCard(
-                            title: "Pending Sync",
-                            value: "\(viewModel.pendingSyncCount)",
-                            systemImage: "arrow.triangle.2.circlepath",
-                            tint: .orange,
-                            action: { tabRouter.selectedTab = .employees }
-                        )
-                        StatCard(
-                            title: "Network",
-                            value: viewModel.isOnline ? "Online" : "Offline",
-                            systemImage: viewModel.isOnline ? "wifi" : "wifi.slash",
-                            tint: viewModel.isOnline ? .green : .secondary,
-                            action: { tabRouter.selectedTab = .more }
-                        )
+                    coverageHero
+                    siteAttendanceSection
+                    if !viewModel.sitesNeedingAttention.isEmpty {
+                        attentionSection
                     }
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Recent Attendance")
-                                .font(.headline)
-                            Text("Latest punches on this device")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if viewModel.pendingSyncCount > 0 {
-                            Text("\(viewModel.pendingSyncCount) pending · Pull down on Employees")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if !viewModel.recentAttendance.isEmpty {
-                            Button("See DTR") {
-                                tabRouter.selectedTab = .dtr
-                            }
-                            .font(.caption)
-                        }
-                    }
-
-                    if viewModel.recentAttendance.isEmpty {
-                        ContentUnavailableView(
-                            "No attendance yet",
-                            systemImage: "clock",
-                            description: Text("Use the Scanner tab to record check-ins.")
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 24)
-                    } else {
-                        ForEach(viewModel.recentAttendance) { item in
-                            HStack {
-                                Image(systemName: item.checkType.systemImage)
-                                    .foregroundStyle(item.checkType == .checkIn ? .green : .orange)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.name).font(.subheadline.weight(.semibold))
-                                    Text("\(item.code) · \(item.timestamp.attendanceDisplay)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                StatusBadge(status: item.syncStatus)
-                            }
-                            .padding()
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
-                    }
+                    recentAttendanceSection
                 }
                 .padding()
             }
@@ -107,19 +39,369 @@ struct DashboardView: View {
             )
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    DashboardStatusIcons(
+                        isOnline: viewModel.isOnline,
+                        pendingSyncCount: viewModel.pendingSyncCount
+                    ) {
+                        tabRouter.selectedTab = .employees
+                    }
+                }
+            }
             .onAppear {
                 viewModel.configure(context: modelContext, syncQueue: syncQueue)
             }
-            // CHANGE: Keep Recent Attendance empty immediately after Clear History.
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceHistoryDidClear)) { _ in
                 viewModel.refresh()
             }
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceDidChange)) { _ in
                 viewModel.refresh()
             }
+            .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
+                viewModel.refresh()
+            }
             .refreshable {
                 viewModel.refresh()
             }
+        }
+    }
+
+    private var coverageHero: some View {
+        let totals = viewModel.attendanceTotals
+        let percent = totals.coveragePercent ?? 0
+        return VStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .stroke(Color(.tertiarySystemFill), lineWidth: 10)
+                Circle()
+                    .trim(from: 0, to: CGFloat(percent) / 100)
+                    .stroke(coverageColor(for: percent), style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeOut(duration: 0.35), value: percent)
+                VStack(spacing: 2) {
+                    if totals.assigned > 0 {
+                        Text("\(percent)%")
+                            .font(.system(.title, design: .rounded).bold())
+                        Text("\(totals.present)/\(totals.assigned)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("—")
+                            .font(.title.bold())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(width: 120, height: 120)
+
+            Text("Today's coverage")
+                .font(.headline)
+            Text("\(todayTitle) · \(viewModel.employeeCount) employee\(viewModel.employeeCount == 1 ? "" : "s") · \(viewModel.siteSummaries.count) site\(viewModel.siteSummaries.count == 1 ? "" : "s")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            if totals.assigned > 0 {
+                HStack(spacing: 8) {
+                    heroChip(title: "Punches", value: "\(totals.punchCount)", tint: .blue)
+                    heroChip(title: "Absent", value: "\(totals.absent)", tint: totals.absent > 0 ? .red : .secondary)
+                    heroChip(title: "Incomplete", value: "\(totals.incomplete)", tint: totals.incomplete > 0 ? .orange : .secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func heroChip(title: String, value: String, tint: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.subheadline.bold()).foregroundStyle(tint)
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var siteAttendanceSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("By job site", systemImage: "building.2.fill")
+                .font(.headline)
+
+            if viewModel.siteSummaries.isEmpty {
+                ContentUnavailableView(
+                    "No job sites",
+                    systemImage: "mappin.and.ellipse",
+                    description: Text("Add a job site under More → Job sites.")
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            } else {
+                ForEach(viewModel.siteSummaries) { site in
+                    SiteAttendanceCard(site: site) {
+                        tabRouter.selectedTab = .dtr
+                    }
+                }
+                Text("Sorted by lowest coverage first")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var attentionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Needs attention", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(.orange)
+
+            ForEach(viewModel.sitesNeedingAttention) { site in
+                HStack(alignment: .top, spacing: 10) {
+                    Circle()
+                        .fill(coverageColor(for: site.coveragePercent ?? 0))
+                        .frame(width: 8, height: 8)
+                        .padding(.top, 5)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(site.siteName)
+                            .font(.subheadline.weight(.semibold))
+                        Text(attentionSummary(for: site))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if let percent = site.coveragePercent {
+                        Text("\(percent)%")
+                            .font(.caption.bold())
+                            .foregroundStyle(coverageColor(for: percent))
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func attentionSummary(for site: DashboardViewModel.SiteAttendanceSummary) -> String {
+        var parts: [String] = []
+        if site.absentCount > 0 {
+            parts.append("\(site.absentCount) absent")
+        }
+        if site.incompleteCount > 0 {
+            parts.append("\(site.incompleteCount) incomplete")
+        }
+        if parts.isEmpty, let percent = site.coveragePercent {
+            parts.append("\(percent)% coverage")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var recentAttendanceSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Live feed")
+                        .font(.headline)
+                    Text("Latest punches on this device")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if !viewModel.recentAttendance.isEmpty {
+                    Button("DTR") {
+                        tabRouter.selectedTab = .dtr
+                    }
+                    .font(.caption)
+                }
+            }
+
+            if viewModel.recentAttendance.isEmpty {
+                ContentUnavailableView(
+                    "No attendance yet",
+                    systemImage: "clock",
+                    description: Text("Use the Scanner tab to record check-ins.")
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            } else {
+                ForEach(Array(viewModel.recentAttendance.enumerated()), id: \.element.id) { index, item in
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(spacing: 0) {
+                            Circle()
+                                .fill(item.checkType == .checkIn ? Color.green : Color.orange)
+                                .frame(width: 10, height: 10)
+                            if index < viewModel.recentAttendance.count - 1 {
+                                Rectangle()
+                                    .fill(Color(.tertiarySystemFill))
+                                    .frame(width: 2)
+                                    .frame(maxHeight: .infinity)
+                            }
+                        }
+                        .frame(width: 10)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(item.name)
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                StatusBadge(status: item.syncStatus)
+                            }
+                            Text("\(item.code) · \(item.checkType.displayName) · \(item.timestamp.attendanceDisplay)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .padding()
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func coverageColor(for percent: Int) -> Color {
+        if percent >= 90 { return .green }
+        if percent >= 70 { return .orange }
+        return .red
+    }
+}
+
+private struct DashboardStatusIcons: View {
+    let isOnline: Bool
+    let pendingSyncCount: Int
+    let onSyncTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: isOnline ? "wifi" : "wifi.slash")
+                .foregroundStyle(isOnline ? .green : .secondary)
+                .accessibilityLabel(isOnline ? "Online" : "Offline")
+
+            Button(action: onSyncTap) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .foregroundStyle(pendingSyncCount > 0 ? .orange : .secondary)
+                    if pendingSyncCount > 0 {
+                        Text("\(min(pendingSyncCount, 99))")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(3)
+                            .background(Color.orange, in: Circle())
+                            .offset(x: 8, y: -8)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(pendingSyncCount > 0 ? "\(pendingSyncCount) pending sync items" : "Sync up to date")
+        }
+        .font(.subheadline)
+    }
+}
+
+private struct SiteAttendanceCard: View {
+    let site: DashboardViewModel.SiteAttendanceSummary
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(site.siteName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
+                        if !site.locationLabel.isEmpty {
+                            Text(site.locationLabel)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    if site.assignedCount > 0 {
+                        VStack(alignment: .trailing, spacing: 0) {
+                            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                                Text("\(site.presentCount)")
+                                    .font(.title2.bold())
+                                    .foregroundStyle(.indigo)
+                                Text("/\(site.assignedCount)")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("punched")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("No roster")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if site.assignedCount > 0, let percent = site.coveragePercent {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color(.tertiarySystemFill))
+                            Capsule()
+                                .fill(coverageColor(for: site.coverageLevel))
+                                .frame(width: geo.size.width * CGFloat(percent) / 100)
+                        }
+                    }
+                    .frame(height: 8)
+
+                    HStack(spacing: 8) {
+                        Text("\(percent)% coverage")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(coverageColor(for: site.coverageLevel))
+                        Spacer()
+                        Text("\(site.punchCount) punch\(site.punchCount == 1 ? "" : "es")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if site.absentCount > 0 || site.incompleteCount > 0 {
+                        HStack(spacing: 10) {
+                            if site.absentCount > 0 {
+                                Text("\(site.absentCount) absent")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            }
+                            if site.incompleteCount > 0 {
+                                Text("\(site.incompleteCount) incomplete")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                } else if site.punchCount > 0 {
+                    Text("\(site.punchCount) punch\(site.punchCount == 1 ? "" : "es") today")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("No punches yet")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(12)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func coverageColor(for level: DashboardViewModel.SiteAttendanceSummary.CoverageLevel) -> Color {
+        switch level {
+        case .none: return .secondary
+        case .good: return .green
+        case .warning: return .orange
+        case .critical: return .red
         }
     }
 }

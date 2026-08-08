@@ -77,12 +77,14 @@ final class SyncService {
 
         reportProgress("Syncing job sites…")
         async let jobSitesTask = syncJobSites(context: context)
+        async let departmentsTask = syncDepartments()
         await processPendingEmployeeDeletions()
         await warmConnectionIfNeeded()
 
         reportProgress(mode == .quick ? "Checking updates…" : "Downloading roster…")
         async let rosterTask: RemoteRosterFetch = fetchRemoteRoster(mode: mode)
         summary.jobSitesSynced = try await jobSitesTask
+        _ = try await departmentsTask
         let rosterResult = try await rosterTask
         var remoteEmployees = rosterResult.employees
         var remoteParsed = rosterResult.parsed
@@ -1144,6 +1146,11 @@ final class SyncService {
         return pushed
     }
 
+    private func syncDepartments() async throws {
+        let remote = try await api.getDepartments()
+        DepartmentStore.applyRemoteCatalog(remote.options)
+    }
+
     private func remapEmployeeSiteIds(_ remap: [UUID: UUID], context: ModelContext) throws {
         guard !remap.isEmpty else { return }
         let empRepo = EmployeeRepository(context: context)
@@ -1362,6 +1369,7 @@ final class SyncService {
         let idDocRepo = EmployeeIdDocumentRepository(context: context)
 
         _ = try await syncJobSites(context: context)
+        try await syncDepartments()
 
         // INTEGRATION: GET /employees
         let remoteEmployees = try await api.getEmployees()

@@ -36,8 +36,7 @@ struct EmployeeEditView: View {
                 TextField("Last Name", text: $lastName)
                     .textContentType(.familyName)
 
-                TextField("Department", text: $department)
-                    .textContentType(.organizationName)
+                DepartmentPickerField(department: $department)
             } header: {
                 Text("Employee Information")
             } footer: {

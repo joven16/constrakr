@@ -344,6 +344,17 @@ actor APIService {
         try validate(data: data, response: response)
     }
 
+    func getDepartments() async throws -> DepartmentsResponse {
+        try rejectIfUnconfigured()
+        let request = try makeRequest(for: .getDepartments)
+        if isDemoHost {
+            return DepartmentsResponse(defaults: DepartmentDefaults.builtIn, custom: [], options: DepartmentDefaults.builtIn)
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        return try JSONDecoder.api.decode(DepartmentsResponse.self, from: data)
+    }
+
     private func recoverEmployeeUpsert(localId: UUID, employeeCode: String) async throws -> EmployeeUpsertResponse? {
         let byLocal = try await getEmployees(localId: localId)
         if let match = byLocal.first,
