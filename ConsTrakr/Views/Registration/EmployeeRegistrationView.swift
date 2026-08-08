@@ -87,7 +87,7 @@ struct EmployeeRegistrationView: View {
                 TextField("Last Name", text: $viewModel.lastName)
                     .textContentType(.familyName)
 
-                DepartmentPickerField(department: $viewModel.department)
+                DepartmentAndPositionFields(department: $viewModel.department, position: $viewModel.position)
 
                 JobSitePickerField(selectedSiteId: $viewModel.assignedSiteId)
             } header: {

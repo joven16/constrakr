@@ -1148,7 +1148,7 @@ final class SyncService {
 
     private func syncDepartments() async throws {
         let remote = try await api.getDepartments()
-        DepartmentStore.applyRemoteCatalog(remote.options)
+        DepartmentStore.applyRemoteCatalog(remote)
     }
 
     private func remapEmployeeSiteIds(_ remap: [UUID: UUID], context: ModelContext) throws {
@@ -1240,6 +1240,7 @@ final class SyncService {
             local.firstName = dto.firstName
             local.lastName = dto.lastName
             local.department = dto.department
+            local.position = dto.position
             local.updatedAt = remoteUpdated
             try empRepo.update(local, persist: false)
             merged += 1

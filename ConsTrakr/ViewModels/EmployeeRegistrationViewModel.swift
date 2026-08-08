@@ -40,6 +40,7 @@ final class EmployeeRegistrationViewModel {
     var firstName = ""
     var lastName = ""
     var department = ""
+    var position = ""
     var assignedSiteId: UUID?
 
     var selectedIdType: IdDocumentType = .philsysNationalId
@@ -278,6 +279,7 @@ final class EmployeeRegistrationViewModel {
                 firstName: firstName,
                 lastName: lastName,
                 department: department.isEmpty ? "General" : department,
+                position: position,
                 assignedSiteId: assignedSiteId,
                 embeddings: embeddings,
                 faceDepthSignature: capturedDepthSignature,
@@ -338,6 +340,7 @@ final class EmployeeRegistrationViewModel {
         firstName = ""
         lastName = ""
         department = ""
+        position = ""
         assignedSiteId = JobSiteStore.defaultSiteId
         selectedIdType = .philsysNationalId
         idDocumentNumber = ""

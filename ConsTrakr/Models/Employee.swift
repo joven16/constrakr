@@ -19,6 +19,7 @@ final class Employee {
     var firstName: String
     var lastName: String
     var department: String
+    var position: String
     /// Job site this employee must be at for Time In / Time Out.
     var assignedSiteId: UUID?
     /// Denormalized from IMS sync — used when the local site catalog is stale.
@@ -45,6 +46,7 @@ final class Employee {
         firstName: String,
         lastName: String,
         department: String,
+        position: String = "",
         assignedSiteId: UUID? = nil,
         assignedSiteName: String = "",
         assignedSiteLocation: String = "",
@@ -63,6 +65,7 @@ final class Employee {
         self.firstName = firstName
         self.lastName = lastName
         self.department = department
+        self.position = position
         self.assignedSiteId = assignedSiteId
         self.assignedSiteName = assignedSiteName
         self.assignedSiteLocation = assignedSiteLocation

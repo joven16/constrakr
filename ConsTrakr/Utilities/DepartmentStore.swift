@@ -8,30 +8,36 @@ import Foundation
 enum DepartmentStore {
     static let catalogDidChangeNotification = Notification.Name("constrakr.departmentsDidChange")
 
-    static var customDepartments: [String] {
-        guard let data = UserDefaults.standard.data(forKey: AppConstants.UserDefaultsKeys.customDepartmentsJSON),
-              let decoded = try? JSONDecoder().decode([String].self, from: data)
-        else { return [] }
+    static var catalog: [DepartmentCatalogCategory] {
+        guard let data = UserDefaults.standard.data(forKey: AppConstants.UserDefaultsKeys.departmentCatalogJSON),
+              let decoded = try? JSONDecoder().decode([DepartmentCatalogCategory].self, from: data),
+              !decoded.isEmpty
+        else {
+            return DepartmentDefaults.builtInCatalog
+        }
         return decoded
     }
 
-    static var allOptions: [String] {
-        merge(defaults: DepartmentDefaults.builtIn, custom: customDepartments)
+    static var departmentNames: [String] {
+        catalog.map(\.name)
     }
 
-    static func applyRemoteCatalog(_ options: [String]) {
-        let builtInLower = Set(DepartmentDefaults.builtIn.map { $0.lowercased() })
-        let customOnly = options.compactMap { name -> String? in
-            let trimmed = normalize(name)
-            guard !trimmed.isEmpty else { return nil }
-            return builtInLower.contains(trimmed.lowercased()) ? nil : trimmed
+    static func positions(for department: String) -> [String] {
+        let normalized = normalize(department)
+        guard let match = catalog.first(where: { $0.name.caseInsensitiveCompare(normalized) == .orderedSame }) else {
+            return []
         }
-        let mergedCustom = merge(defaults: [], custom: customOnly)
-        guard mergedCustom != customDepartments else { return }
-        if let data = try? JSONEncoder().encode(mergedCustom) {
-            UserDefaults.standard.set(data, forKey: AppConstants.UserDefaultsKeys.customDepartmentsJSON)
-            postChange()
-        }
+        return match.positions.map(\.name)
+    }
+
+    static func applyRemoteCatalog(_ response: DepartmentsResponse) {
+        let remote = response.catalog
+        guard !remote.isEmpty else { return }
+        guard let data = try? JSONEncoder().encode(remote) else { return }
+        let existing = UserDefaults.standard.data(forKey: AppConstants.UserDefaultsKeys.departmentCatalogJSON)
+        if existing == data { return }
+        UserDefaults.standard.set(data, forKey: AppConstants.UserDefaultsKeys.departmentCatalogJSON)
+        postChange()
     }
 
     static func normalize(_ value: String) -> String {
@@ -40,34 +46,16 @@ enum DepartmentStore {
             .joined(separator: " ")
     }
 
-    static func isPreset(_ value: String) -> Bool {
+    static func isKnownDepartment(_ value: String) -> Bool {
         let normalized = normalize(value)
         guard !normalized.isEmpty else { return false }
-        return allOptions.contains { $0.caseInsensitiveCompare(normalized) == .orderedSame }
+        return catalog.contains { $0.name.caseInsensitiveCompare(normalized) == .orderedSame }
     }
 
-    static func displayOptions(including value: String) -> [String] {
-        var options = allOptions
-        let normalized = normalize(value)
-        if !normalized.isEmpty,
-           !options.contains(where: { $0.caseInsensitiveCompare(normalized) == .orderedSame }) {
-            options.append(normalized)
-        }
-        return options
-    }
-
-    private static func merge(defaults: [String], custom: [String]) -> [String] {
-        var seen = Set<String>()
-        var merged: [String] = []
-        for name in defaults + custom {
-            let cleaned = normalize(name)
-            guard !cleaned.isEmpty else { continue }
-            let key = cleaned.lowercased()
-            guard !seen.contains(key) else { continue }
-            seen.insert(key)
-            merged.append(cleaned)
-        }
-        return merged
+    static func isKnownPosition(_ department: String, position: String) -> Bool {
+        let pos = normalize(position)
+        guard !pos.isEmpty else { return false }
+        return positions(for: department).contains { $0.caseInsensitiveCompare(pos) == .orderedSame }
     }
 
     private static func postChange() {

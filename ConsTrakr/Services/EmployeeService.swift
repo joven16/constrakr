@@ -35,6 +35,7 @@ final class EmployeeService {
         firstName: String,
         lastName: String,
         department: String,
+        position: String = "",
         assignedSiteId: UUID? = nil,
         embeddings: [FaceEmbedding],
         faceDepthSignature: FaceDepthSignature? = nil,
@@ -70,6 +71,7 @@ final class EmployeeService {
             firstName: first,
             lastName: last,
             department: dept.isEmpty ? "General" : dept,
+            position: position.trimmingCharacters(in: .whitespacesAndNewlines),
             assignedSiteId: assignedSiteId,
             faceEmbeddings: embeddings,
             faceDepthSignature: faceDepthSignature,
@@ -157,6 +159,7 @@ final class EmployeeService {
         firstName: String,
         lastName: String,
         department: String,
+        position: String = "",
         assignedSiteId: UUID?
     ) throws {
         let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -174,6 +177,7 @@ final class EmployeeService {
         employee.firstName = first
         employee.lastName = last
         employee.department = dept.isEmpty ? "General" : dept
+        employee.position = position.trimmingCharacters(in: .whitespacesAndNewlines)
         let siteFields = JobSiteStore.syncFields(for: assignedSiteId)
         JobSiteStore.applyAssignmentSnapshot(
             to: employee,
@@ -211,6 +215,7 @@ final class EmployeeService {
             employee.firstName = dto.firstName
             employee.lastName = dto.lastName
             employee.department = dto.department
+            employee.position = dto.position
             JobSiteStore.applyAssignmentSnapshot(
                 to: employee,
                 siteId: dto.assignedSiteId,

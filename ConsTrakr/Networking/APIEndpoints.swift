@@ -157,6 +157,7 @@ struct EmployeeDTO: Codable, Identifiable {
     let firstName: String
     let lastName: String
     let department: String
+    let position: String
     let assignedSiteId: UUID?
     let assignedSiteName: String?
     let assignedSiteLocation: String?
@@ -175,6 +176,7 @@ struct EmployeeDTO: Codable, Identifiable {
         case firstName = "first_name"
         case lastName = "last_name"
         case department
+        case position
         case assignedSiteId = "assigned_site_id"
         case assignedSiteName = "assigned_site_name"
         case assignedSiteLocation = "assigned_site_location"
@@ -191,6 +193,7 @@ struct EmployeeDTO: Codable, Identifiable {
         firstName: String,
         lastName: String,
         department: String,
+        position: String = "",
         assignedSiteId: UUID? = nil,
         assignedSiteName: String? = nil,
         assignedSiteLocation: String? = nil,
@@ -204,6 +207,7 @@ struct EmployeeDTO: Codable, Identifiable {
         self.firstName = firstName
         self.lastName = lastName
         self.department = department
+        self.position = position
         self.assignedSiteId = assignedSiteId
         self.assignedSiteName = assignedSiteName
         self.assignedSiteLocation = assignedSiteLocation
@@ -224,6 +228,7 @@ struct EmployeeDTO: Codable, Identifiable {
             firstName: employee.firstName,
             lastName: employee.lastName,
             department: employee.department,
+            position: employee.position,
             assignedSiteId: employee.assignedSiteId ?? catalog.id,
             assignedSiteName: siteNameSnapshot.isEmpty ? catalog.name : siteNameSnapshot,
             assignedSiteLocation: siteLocationSnapshot.isEmpty ? catalog.location : siteLocationSnapshot,
@@ -244,6 +249,7 @@ struct EmployeeDTO: Codable, Identifiable {
         firstName = try container.decodeIfPresent(String.self, forKey: .firstName) ?? ""
         lastName = try container.decodeIfPresent(String.self, forKey: .lastName) ?? ""
         department = try container.decodeIfPresent(String.self, forKey: .department) ?? "General"
+        position = try container.decodeIfPresent(String.self, forKey: .position) ?? ""
         assignedSiteId = try container.decodeIfPresent(UUID.self, forKey: .assignedSiteId)
         assignedSiteName = try container.decodeIfPresent(String.self, forKey: .assignedSiteName)
         assignedSiteLocation = try container.decodeIfPresent(String.self, forKey: .assignedSiteLocation)
@@ -276,6 +282,7 @@ struct EmployeeDTO: Codable, Identifiable {
         try container.encode(firstName, forKey: .firstName)
         try container.encode(lastName, forKey: .lastName)
         try container.encode(department, forKey: .department)
+        try container.encode(position, forKey: .position)
         if let assignedSiteId {
             try container.encode(assignedSiteId, forKey: .assignedSiteId)
         } else {
@@ -291,13 +298,30 @@ struct EmployeeDTO: Codable, Identifiable {
 
 struct DepartmentsResponse: Codable {
     let defaults: [String]
+    let catalog: [DepartmentCatalogCategory]
     let custom: [DepartmentOptionDTO]
     let options: [String]
 
     enum CodingKeys: String, CodingKey {
         case defaults
+        case catalog
         case custom
         case options
+    }
+
+    init(defaults: [String], catalog: [DepartmentCatalogCategory], custom: [DepartmentOptionDTO], options: [String]) {
+        self.defaults = defaults
+        self.catalog = catalog
+        self.custom = custom
+        self.options = options
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        defaults = try container.decodeIfPresent([String].self, forKey: .defaults) ?? DepartmentDefaults.builtIn
+        catalog = try container.decodeIfPresent([DepartmentCatalogCategory].self, forKey: .catalog) ?? DepartmentDefaults.builtInCatalog
+        custom = try container.decodeIfPresent([DepartmentOptionDTO].self, forKey: .custom) ?? []
+        options = try container.decodeIfPresent([String].self, forKey: .options) ?? defaults
     }
 }
 

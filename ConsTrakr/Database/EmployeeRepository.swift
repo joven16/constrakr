@@ -147,6 +147,7 @@ final class EmployeeRepository {
             existing.firstName = dto.firstName
             existing.lastName = dto.lastName
             existing.department = dto.department
+            existing.position = dto.position
             existing.employeeCode = dto.employeeCode
             JobSiteStore.applyAssignmentSnapshot(
                 to: existing,
@@ -165,6 +166,7 @@ final class EmployeeRepository {
             existing.firstName = dto.firstName
             existing.lastName = dto.lastName
             existing.department = dto.department
+            existing.position = dto.position
             JobSiteStore.applyAssignmentSnapshot(
                 to: existing,
                 siteId: dto.assignedSiteId,
@@ -185,6 +187,7 @@ final class EmployeeRepository {
             firstName: dto.firstName,
             lastName: dto.lastName,
             department: dto.department,
+            position: dto.position,
             assignedSiteId: dto.assignedSiteId,
             assignedSiteName: dto.assignedSiteName ?? "",
             assignedSiteLocation: dto.assignedSiteLocation ?? "",

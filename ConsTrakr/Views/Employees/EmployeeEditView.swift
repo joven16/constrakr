@@ -16,6 +16,7 @@ struct EmployeeEditView: View {
     @State private var firstName = ""
     @State private var lastName = ""
     @State private var department = ""
+    @State private var position = ""
     @State private var assignedSiteId: UUID?
     @State private var errorMessage: String?
     @State private var isSaving = false
@@ -36,7 +37,7 @@ struct EmployeeEditView: View {
                 TextField("Last Name", text: $lastName)
                     .textContentType(.familyName)
 
-                DepartmentPickerField(department: $department)
+                DepartmentAndPositionFields(department: $department, position: $position)
             } header: {
                 Text("Employee Information")
             } footer: {
@@ -65,6 +66,7 @@ struct EmployeeEditView: View {
             firstName = employee.firstName
             lastName = employee.lastName
             department = employee.department
+            position = employee.position
             assignedSiteId = employee.assignedSiteId
         }
         .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
@@ -94,6 +96,7 @@ struct EmployeeEditView: View {
                 firstName: firstName,
                 lastName: lastName,
                 department: department,
+                position: position,
                 assignedSiteId: assignedSiteId
             )
             Task { await syncQueue.syncNow(mode: .quick, scope: .employees) }

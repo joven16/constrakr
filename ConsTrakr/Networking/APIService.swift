@@ -348,7 +348,12 @@ actor APIService {
         try rejectIfUnconfigured()
         let request = try makeRequest(for: .getDepartments)
         if isDemoHost {
-            return DepartmentsResponse(defaults: DepartmentDefaults.builtIn, custom: [], options: DepartmentDefaults.builtIn)
+            return DepartmentsResponse(
+                defaults: DepartmentDefaults.builtIn,
+                catalog: DepartmentDefaults.builtInCatalog,
+                custom: [],
+                options: DepartmentDefaults.builtIn
+            )
         }
         let (data, response) = try await session.data(for: request)
         try validate(data: data, response: response)
