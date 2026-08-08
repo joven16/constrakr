@@ -27,7 +27,7 @@ struct SettingsView: View {
             appearanceSection
             statusSection
             syncSection
-            imsAccountSection
+            syncAccountSection
             configurationSection
             aboutSection
         }
@@ -143,7 +143,7 @@ struct SettingsView: View {
         }
     }
 
-    private var imsAccountSection: some View {
+    private var syncAccountSection: some View {
         Section {
             if viewModel.isAdminAuthenticated {
                 LabeledContent("Signed in as", value: AdminSession.shared.username ?? "Admin")

@@ -35,7 +35,7 @@ struct AdminCodePromptSheet: View {
                     if let assigned = DeviceStore.assignedUserName ?? DeviceStore.assignedUserUsername {
                         Text("Use the admin code for \(assigned).")
                     } else {
-                        Text("Use the admin code from the user assigned to this device in IMS.")
+                        Text("Use the admin code from the user assigned to this device on the web dashboard.")
                     }
                 }
 

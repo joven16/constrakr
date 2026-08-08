@@ -71,6 +71,7 @@ enum AppConstants {
         static let clockIntegrityCheckpoint = "settings.clockIntegrityCheckpoint"
         static let appTheme = "settings.appTheme"
         static let deviceLocalId = "sync.deviceLocalId"
+        static let deviceCustomName = "sync.deviceCustomName"
         static let deviceAssignedUserName = "sync.deviceAssignedUserName"
         static let deviceAssignedUserUsername = "sync.deviceAssignedUserUsername"
         static let deviceAdminCodeRequired = "sync.deviceAdminCodeRequired"

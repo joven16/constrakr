@@ -1115,13 +1115,13 @@ final class SyncService {
         }
     }
 
-    /// Registers this installation with IMS and refreshes assigned-user admin code state.
+    /// Registers this installation with the server and refreshes assigned-user admin code state.
     private func syncDeviceRegistration() async {
         guard await api.hasAuthToken() else { return }
         do {
             let device = try await api.registerDevice(
                 localId: DeviceStore.localId,
-                name: DeviceStore.displayName,
+                name: DeviceStore.syncName,
                 appVersion: DeviceStore.appVersion
             )
             DeviceStore.update(from: device)

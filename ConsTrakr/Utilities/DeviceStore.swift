@@ -31,12 +31,47 @@ enum DeviceStore {
         UserDefaults.standard.bool(forKey: AppConstants.UserDefaultsKeys.deviceAdminCodeRequired)
     }
 
-    static var displayName: String {
+    /// Name from Settings → General → About on this iPhone/iPad.
+    static var systemDeviceName: String {
         UIDevice.current.name
+    }
+
+    /// Optional label set in ConsTrakr — empty when using the system device name.
+    static var customName: String {
+        UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.deviceCustomName) ?? ""
+    }
+
+    static var usesCustomName: Bool {
+        !customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Name pushed to the web Devices list on sync.
+    static var syncName: String {
+        let custom = customName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !custom.isEmpty {
+            return String(custom.prefix(200))
+        }
+        return systemDeviceName
     }
 
     static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    }
+
+    static func setSyncName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let system = systemDeviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == system {
+            UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.deviceCustomName)
+        } else {
+            UserDefaults.standard.set(String(trimmed.prefix(200)), forKey: AppConstants.UserDefaultsKeys.deviceCustomName)
+        }
+        postChange()
+    }
+
+    static func resetToSystemDeviceName() {
+        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.deviceCustomName)
+        postChange()
     }
 
     static func update(from device: DeviceDTO?) {
@@ -49,6 +84,10 @@ enum DeviceStore {
             UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.deviceAssignedUserUsername)
             UserDefaults.standard.set(false, forKey: AppConstants.UserDefaultsKeys.deviceAdminCodeRequired)
         }
+        postChange()
+    }
+
+    private static func postChange() {
         NotificationCenter.default.post(name: deviceDidChangeNotification, object: nil)
     }
 }

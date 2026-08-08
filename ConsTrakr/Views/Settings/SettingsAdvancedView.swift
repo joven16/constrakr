@@ -4,13 +4,21 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct SettingsAdvancedView: View {
     @Bindable var viewModel: SettingsViewModel
     @Binding var showRestoreTestConfirmation: Bool
 
+    @State private var deviceNameText = ""
+    @State private var didCopyDeviceID = false
+
     var body: some View {
         Form {
+            deviceSection
+
             Section {
                 TextField("Base URL (HTTPS)", text: $viewModel.apiBaseURL)
                     .textInputAutocapitalization(.never)
@@ -76,10 +84,85 @@ struct SettingsAdvancedView: View {
         }
         .navigationTitle("Advanced")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            deviceNameText = viewModel.reloadDeviceNameDraft()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: DeviceStore.deviceDidChangeNotification)) { _ in
+            deviceNameText = viewModel.reloadDeviceNameDraft()
+        }
         .alert("API Connection Test", isPresented: $viewModel.showAPITestAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(viewModel.apiTestMessage ?? "")
+        }
+    }
+
+    private var deviceSection: some View {
+        Section {
+            TextField("Device name", text: $deviceNameText)
+                .textInputAutocapitalization(.words)
+                .onSubmit {
+                    Task { await viewModel.saveDeviceName(deviceNameText) }
+                }
+
+            if viewModel.isSavingDeviceName {
+                HStack {
+                    ProgressView()
+                    Text("Syncing device name…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            LabeledContent("iPhone/iPad name", value: DeviceStore.systemDeviceName)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Device ID")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(DeviceStore.localId.uuidString)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+
+            Button {
+                copyDeviceID()
+            } label: {
+                Label(didCopyDeviceID ? "Copied" : "Copy device ID", systemImage: didCopyDeviceID ? "checkmark" : "doc.on.doc")
+            }
+
+            if DeviceStore.usesCustomName {
+                Button("Use iPhone/iPad name") {
+                    deviceNameText = DeviceStore.systemDeviceName
+                    Task { await viewModel.resetDeviceNameToSystem() }
+                }
+            }
+        } header: {
+            Text("This device")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("This name appears on the web Devices list. Use a custom label like Gate 2 kiosk, or keep your iPhone/iPad name.")
+                if let status = viewModel.deviceNameStatusMessage {
+                    Text(status)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .onDisappear {
+            let trimmed = deviceNameText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed != DeviceStore.syncName else { return }
+            Task { await viewModel.saveDeviceName(trimmed) }
+        }
+    }
+
+    private func copyDeviceID() {
+#if canImport(UIKit)
+        UIPasteboard.general.string = DeviceStore.localId.uuidString
+#endif
+        didCopyDeviceID = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            didCopyDeviceID = false
         }
     }
 }

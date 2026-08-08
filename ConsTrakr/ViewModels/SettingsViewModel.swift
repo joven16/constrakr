@@ -198,6 +198,9 @@ final class SettingsViewModel {
     private(set) var apiTestMessage: String?
     var showAPITestAlert = false
 
+    private(set) var deviceNameStatusMessage: String?
+    private(set) var isSavingDeviceName = false
+
     func configure(syncQueue: SyncQueue) {
         self.syncQueue = syncQueue
         refresh()
@@ -290,12 +293,46 @@ final class SettingsViewModel {
         showAPITestAlert = true
     }
 
+    func reloadDeviceNameDraft() -> String {
+        DeviceStore.syncName
+    }
+
+    func saveDeviceName(_ name: String) async {
+        isSavingDeviceName = true
+        defer { isSavingDeviceName = false }
+        DeviceStore.setSyncName(name)
+        deviceNameStatusMessage = nil
+
+        guard AdminSession.shared.isAuthenticated, NetworkMonitor.shared.isConnected else {
+            deviceNameStatusMessage = "Saved on this device. Will appear on the web after you sign in and sync."
+            return
+        }
+
+        do {
+            let device = try await APIService.shared.registerDevice(
+                localId: DeviceStore.localId,
+                name: DeviceStore.syncName,
+                appVersion: DeviceStore.appVersion
+            )
+            DeviceStore.update(from: device)
+            deviceNameStatusMessage = "Synced to the web Devices list."
+        } catch {
+            deviceNameStatusMessage = "Saved on this device. Will sync on the next successful sync."
+        }
+    }
+
+    func resetDeviceNameToSystem() async {
+        DeviceStore.resetToSystemDeviceName()
+        await saveDeviceName(DeviceStore.syncName)
+    }
+
     func signInAdmin() async {
         await APIService.shared.updateBaseURL(apiBaseURL)
         do {
             try await AdminSession.shared.signIn(username: adminUsername, password: adminPassword)
             adminPassword = ""
             refresh()
+            await saveDeviceName(DeviceStore.syncName)
             statusMessage = "Signed in. Sync and restore are enabled."
         } catch {
             statusMessage = error.localizedDescription

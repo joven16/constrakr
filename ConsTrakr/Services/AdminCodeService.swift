@@ -20,7 +20,7 @@ enum AdminCodeError: LocalizedError {
         case .notRegistered:
             return "This device is not registered yet. Sign in and sync first."
         case .noAssignedUser:
-            return "No user is assigned to this device. Assign one in IMS → People → Devices."
+            return "No user is assigned to this device. Assign one under Devices on the web dashboard."
         case .adminCodeNotSet:
             return "The assigned user has not set an admin code. They can set it under Profile → Edit Profile."
         case .invalidPasscode:
