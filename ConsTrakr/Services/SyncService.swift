@@ -538,6 +538,9 @@ final class SyncService {
         if PendingEmployeeDeletionStore.hasPending() {
             return true
         }
+        if JobSiteStore.hasPendingSync {
+            return true
+        }
         let employees = EmployeeRepository(context: context)
         let embeddings = FaceEmbeddingRepository(context: context)
         let photos = FaceEnrollmentPhotoRepository(context: context)
@@ -1134,6 +1137,7 @@ final class SyncService {
                 JobSiteStore.remapSiteId(from: dto.id, to: response.id)
                 try remapEmployeeSiteIds([dto.id: response.id], context: context)
             }
+            JobSiteStore.clearPendingUpload(id: site.id)
             pushed += 1
         }
 

@@ -17,11 +17,8 @@ final class AppTabRouter {
     }
 
     var selectedTab: Tab = .dashboard
-    /// When set, DTR tab shows roster and punches for this job site only.
-    var dtrSiteFilterId: UUID?
-
-    func openDTR(forSiteId siteId: UUID) {
-        dtrSiteFilterId = siteId
+    /// Opens DTR for the default job site configured under More → Job Sites.
+    func openDTR() {
         selectedTab = .dtr
     }
 }

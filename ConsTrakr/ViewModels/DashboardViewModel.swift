@@ -17,16 +17,23 @@ final class DashboardViewModel {
     private(set) var attendanceTotals = AttendanceTotals()
     private(set) var isOnline = false
     private(set) var errorMessage: String?
+    private(set) var defaultSiteId: UUID?
 
     private var employeeService: EmployeeService?
     private var attendanceService: AttendanceService?
     private var syncQueue: SyncQueue?
 
     var sitesNeedingAttention: [SiteAttendanceSummary] {
-        siteSummaries.filter { site in
-            guard site.assignedCount > 0, let percent = site.coveragePercent else { return false }
-            return percent < 70 || site.absentCount > 0
+        guard let defaultSiteId else { return [] }
+        return siteSummaries.filter { site in
+            guard site.id == defaultSiteId, site.assignedCount > 0 else { return false }
+            return (site.coveragePercent ?? 100) < 70 || site.absentCount > 0
         }
+    }
+
+    var defaultSiteSummary: SiteAttendanceSummary? {
+        guard let defaultSiteId else { return nil }
+        return siteSummaries.first { $0.id == defaultSiteId }
     }
 
     struct SiteAttendanceSummary: Identifiable {
@@ -103,11 +110,18 @@ final class DashboardViewModel {
 
     func refresh() {
         guard let employeeService, let attendanceService else { return }
+        defaultSiteId = JobSiteStore.defaultSiteId ?? JobSiteStore.defaultSite?.id
         do {
-            employeeCount = try employeeService.count()
             let employees = try employeeService.allEmployees()
-            enrolledCount = employees.filter(\.isEnrolled).count
-            unassignedCount = employees.filter { $0.assignedSiteId == nil }.count
+            if let defaultSiteId {
+                enrolledCount = employees.filter { $0.isEnrolled && $0.assignedSiteId == defaultSiteId }.count
+                employeeCount = employees.filter { $0.assignedSiteId == defaultSiteId }.count
+                unassignedCount = employees.filter { $0.assignedSiteId == nil }.count
+            } else {
+                enrolledCount = 0
+                employeeCount = 0
+                unassignedCount = employees.filter { $0.assignedSiteId == nil }.count
+            }
             if let syncPending = syncQueue?.pendingCount {
                 pendingSyncCount = syncPending
             } else {
@@ -136,7 +150,14 @@ final class DashboardViewModel {
             var totals = AttendanceTotals()
             var summaries: [SiteAttendanceSummary] = []
 
-            for site in JobSiteStore.allSites {
+            let sitesToShow: [JobSite]
+            if let defaultSiteId, let defaultSite = JobSiteStore.site(id: defaultSiteId) {
+                sitesToShow = [defaultSite]
+            } else {
+                sitesToShow = []
+            }
+
+            for site in sitesToShow {
                 let assigned = employees.filter { $0.assignedSiteId == site.id }
                 var checkInCount = 0
                 var checkOutCount = 0
@@ -185,15 +206,6 @@ final class DashboardViewModel {
                         completionScore: completionScore
                     )
                 )
-            }
-
-            summaries.sort { lhs, rhs in
-                if lhs.assignedCount == 0, rhs.assignedCount > 0 { return false }
-                if rhs.assignedCount == 0, lhs.assignedCount > 0 { return true }
-                let left = lhs.coveragePercent ?? 101
-                let right = rhs.coveragePercent ?? 101
-                if left != right { return left < right }
-                return lhs.siteName.localizedCaseInsensitiveCompare(rhs.siteName) == .orderedAscending
             }
 
             siteSummaries = summaries

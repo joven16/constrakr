@@ -95,7 +95,7 @@ struct DashboardView: View {
 
             Text("Today's coverage")
                 .font(.headline)
-            Text("\(todayTitle) · \(viewModel.employeeCount) employee\(viewModel.employeeCount == 1 ? "" : "s") · \(viewModel.siteSummaries.count) site\(viewModel.siteSummaries.count == 1 ? "" : "s")")
+            Text("\(todayTitle) · \(viewModel.employeeCount) employee\(viewModel.employeeCount == 1 ? "" : "s") · \(defaultSiteSubtitle)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -123,28 +123,33 @@ struct DashboardView: View {
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
+    private var defaultSiteSubtitle: String {
+        if let site = viewModel.defaultSiteSummary {
+            return site.siteName
+        }
+        return "No default site"
+    }
+
     private var siteAttendanceSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("By job site", systemImage: "building.2.fill")
+            Label("Default job site", systemImage: "building.2.fill")
                 .font(.headline)
 
-            if viewModel.siteSummaries.isEmpty {
+            if let site = viewModel.defaultSiteSummary {
+                SiteAttendanceCard(
+                    site: site,
+                    isDefault: true
+                ) {
+                    tabRouter.openDTR()
+                }
+            } else {
                 ContentUnavailableView(
-                    "No job sites",
+                    "No default job site",
                     systemImage: "mappin.and.ellipse",
-                    description: Text("Add a job site under More → Job sites.")
+                    description: Text("Set a default site under More → Job sites.")
                 )
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
-            } else {
-                ForEach(viewModel.siteSummaries) { site in
-                    SiteAttendanceCard(site: site) {
-                        tabRouter.openDTR(forSiteId: site.id)
-                    }
-                }
-                Text("Sorted by lowest coverage first")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding()
@@ -216,10 +221,10 @@ struct DashboardView: View {
                     tint: viewModel.unassignedCount > 0 ? .orange : .secondary
                 )
                 metricTile(
-                    title: "Job sites",
-                    value: "\(viewModel.siteSummaries.count)",
-                    subtitle: "Active on device",
-                    tint: .cyan
+                    title: "Default site",
+                    value: viewModel.defaultSiteSummary?.siteName ?? "Not set",
+                    subtitle: "Attendance & roster scope",
+                    tint: viewModel.defaultSiteSummary == nil ? .orange : .cyan
                 )
                 metricTile(
                     title: "Pending sync",
@@ -260,6 +265,7 @@ struct DashboardView: View {
 
 private struct SiteAttendanceCard: View {
     let site: DashboardViewModel.SiteAttendanceSummary
+    let isDefault: Bool
     let action: () -> Void
 
     var body: some View {
@@ -267,10 +273,19 @@ private struct SiteAttendanceCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(site.siteName)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .multilineTextAlignment(.leading)
+                        HStack(spacing: 6) {
+                            Text(site.siteName)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            if isDefault {
+                                Text("Default")
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.teal.opacity(0.15), in: Capsule())
+                                    .foregroundStyle(.teal)
+                            }
+                        }
                         if !site.locationLabel.isEmpty {
                             Text(site.locationLabel)
                                 .font(.caption)
@@ -345,6 +360,12 @@ private struct SiteAttendanceCard: View {
             }
             .padding(12)
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                if isDefault {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.teal.opacity(0.55), lineWidth: 2)
+                }
+            }
         }
         .buttonStyle(.plain)
     }

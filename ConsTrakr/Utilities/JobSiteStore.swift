@@ -26,6 +26,22 @@ enum JobSiteStore {
         return raw.compactMap(UUID.init(uuidString:))
     }
 
+    static var pendingUploadIds: [UUID] {
+        guard let raw = UserDefaults.standard.stringArray(forKey: AppConstants.UserDefaultsKeys.pendingJobSiteUploads) else {
+            return []
+        }
+        return raw.compactMap(UUID.init(uuidString:))
+    }
+
+    /// Local job site adds/edits/deletes waiting for the next server sync.
+    static var hasPendingSync: Bool {
+        !pendingDeleteIds.isEmpty || !pendingUploadIds.isEmpty
+    }
+
+    static var pendingSyncCount: Int {
+        pendingDeleteIds.count + pendingUploadIds.count
+    }
+
     static var defaultSiteId: UUID? {
         get {
             migrateLegacyIfNeeded()
@@ -165,6 +181,9 @@ enum JobSiteStore {
             sites.append(updated)
         }
         persist(sites)
+        if touchUpdatedAt {
+            markPendingUpload(id: updated.id)
+        }
         if defaultSiteId == nil, updated.hasCoordinate {
             defaultSiteId = updated.id
         }
@@ -194,6 +213,25 @@ enum JobSiteStore {
         UserDefaults.standard.set(
             remaining.map(\.uuidString),
             forKey: AppConstants.UserDefaultsKeys.pendingJobSiteDeletions
+        )
+    }
+
+    static func markPendingUpload(id: UUID) {
+        var pending = pendingUploadIds
+        if !pending.contains(id) {
+            pending.append(id)
+            UserDefaults.standard.set(
+                pending.map(\.uuidString),
+                forKey: AppConstants.UserDefaultsKeys.pendingJobSiteUploads
+            )
+        }
+    }
+
+    static func clearPendingUpload(id: UUID) {
+        let remaining = pendingUploadIds.filter { $0 != id }
+        UserDefaults.standard.set(
+            remaining.map(\.uuidString),
+            forKey: AppConstants.UserDefaultsKeys.pendingJobSiteUploads
         )
     }
 

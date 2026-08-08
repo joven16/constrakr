@@ -63,6 +63,7 @@ enum AppConstants {
         static let jobSitesJSON = "settings.jobSitesJSON"
         static let defaultJobSiteId = "settings.defaultJobSiteId"
         static let pendingJobSiteDeletions = "sync.pendingJobSiteDeletions"
+        static let pendingJobSiteUploads = "sync.pendingJobSiteUploads"
         static let lastRemoteJobSiteIds = "sync.lastRemoteJobSiteIds"
         static let pendingEmployeeDeletions = "sync.pendingEmployeeDeletions"
         static let departmentCatalogJSON = "sync.departmentCatalogJSON"

@@ -13,6 +13,8 @@ final class EmployeeListViewModel {
 
     private(set) var employees: [Employee] = []
     private(set) var listErrorMessage: String?
+    private(set) var defaultSiteId: UUID?
+    private(set) var defaultSiteTitle: String?
     private(set) var cloudCheckErrorMessage: String?
     private(set) var cloudReport: EmployeeSyncReport?
     private(set) var isCheckingCloud = false
@@ -30,8 +32,20 @@ final class EmployeeListViewModel {
 
     func refresh() {
         guard let employeeService else { return }
+        defaultSiteId = JobSiteStore.defaultSiteId ?? JobSiteStore.defaultSite?.id
+        if let defaultSiteId, let site = JobSiteStore.site(id: defaultSiteId) {
+            defaultSiteTitle = site.displayTitle
+        } else {
+            defaultSiteTitle = nil
+        }
         do {
-            employees = try employeeService.allEmployees(search: searchText)
+            var list = try employeeService.allEmployees(search: searchText)
+            if let defaultSiteId {
+                list = list.filter { $0.assignedSiteId == defaultSiteId }
+            } else {
+                list = []
+            }
+            employees = list
             listErrorMessage = nil
         } catch {
             listErrorMessage = error.localizedDescription
@@ -39,8 +53,7 @@ final class EmployeeListViewModel {
     }
 
     private func reloadEmployeesOnly() {
-        guard let employeeService else { return }
-        employees = (try? employeeService.allEmployees(search: searchText)) ?? employees
+        refresh()
     }
 
     func cloudStatus(for employeeId: UUID) -> EmployeeCloudStatus {

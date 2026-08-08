@@ -12,25 +12,13 @@ import UIKit
 struct DTRView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncQueue.self) private var syncQueue
-    @Environment(AppTabRouter.self) private var tabRouter
     @State private var viewModel = DTRViewModel()
-
-    private var siteSelection: Binding<UUID?> {
-        Binding(
-            get: { tabRouter.dtrSiteFilterId },
-            set: { newValue in
-                tabRouter.dtrSiteFilterId = newValue
-                viewModel.selectedSiteId = newValue
-                viewModel.refresh()
-            }
-        )
-    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                sitePickerSection
-                if tabRouter.dtrSiteFilterId != nil {
+                if viewModel.defaultSiteId != nil {
+                    defaultSiteHeader
                     datePicker
                     syncStatusBar
                     columnHeader
@@ -42,12 +30,7 @@ struct DTRView: View {
             .navigationTitle("DTR")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
-                viewModel.selectedSiteId = tabRouter.dtrSiteFilterId
                 viewModel.configure(context: modelContext, syncQueue: syncQueue)
-            }
-            .onChange(of: tabRouter.dtrSiteFilterId) { _, newValue in
-                viewModel.selectedSiteId = newValue
-                viewModel.refresh()
             }
             .onChange(of: syncQueue.pendingCount) { _, _ in
                 viewModel.refresh()
@@ -70,28 +53,29 @@ struct DTRView: View {
         }
     }
 
-    private var sitePickerSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Job site")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
-            JobSitePickerField(
-                selectedSiteId: siteSelection,
-                coordinateSitesOnly: false
-            )
-            .padding(.horizontal)
-            .padding(.bottom, 8)
+    private var defaultSiteHeader: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "building.2.fill")
+                .foregroundStyle(.teal)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(viewModel.selectedSiteTitle ?? "Default job site")
+                    .font(.subheadline.weight(.semibold))
+                Text("Default site · change under More → Job Sites")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
         }
-        .padding(.top, 8)
-        .background(Color(.secondarySystemBackground).opacity(0.5))
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(Color.teal.opacity(0.08))
     }
 
     private var sitePrompt: some View {
         ContentUnavailableView(
-            "Select a job site",
-            systemImage: "building.2",
-            description: Text("Choose a site above to view daily time records for assigned employees.")
+            "No default job site",
+            systemImage: "mappin.slash",
+            description: Text("Set a default site under More → Job Sites to view daily time records for that crew.")
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -147,10 +131,6 @@ struct DTRView: View {
     private var syncStatusBar: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                if let siteTitle = viewModel.selectedSiteTitle {
-                    Text(siteTitle)
-                        .font(.caption.weight(.semibold))
-                }
                 HStack(spacing: 8) {
                     Label("\(viewModel.pendingSyncCount) pending", systemImage: "arrow.up.circle")
                         .font(.caption.weight(.semibold))
@@ -163,7 +143,7 @@ struct DTRView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Text("Pull down to sync punches and server corrections.")
+                Text("Pull down to upload punches and download server corrections.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

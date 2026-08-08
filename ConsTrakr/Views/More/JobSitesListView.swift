@@ -6,11 +6,33 @@
 import SwiftUI
 
 struct JobSitesListView: View {
+    @Environment(SyncQueue.self) private var syncQueue
     @State private var sites: [JobSite] = JobSiteStore.allSites
     @State private var showAddSite = false
 
+    private var pendingJobSiteSync: Int {
+        JobSiteStore.pendingSyncCount
+    }
+
     var body: some View {
         List {
+            if pendingJobSiteSync > 0 {
+                Section {
+                    HStack(spacing: 10) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(pendingJobSiteSync) job site change\(pendingJobSiteSync == 1 ? "" : "s") waiting to sync")
+                                .font(.subheadline)
+                            Text("Pull down to sync now, or they'll upload automatically when you're back online.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
             if sites.isEmpty {
                 ContentUnavailableView {
                     Label("No Job Sites", systemImage: "mappin.and.ellipse")
@@ -45,6 +67,10 @@ struct JobSitesListView: View {
         }
         .onAppear { reload() }
         .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
+            reload()
+        }
+        .refreshable {
+            await syncQueue.syncNow(mode: .quick, scope: .all)
             reload()
         }
     }

@@ -10,13 +10,13 @@ import SwiftData
 @Observable
 final class DTRViewModel {
     var selectedDate: Date = Date()
-    var selectedSiteId: UUID?
 
     private(set) var rows: [DTRRow] = []
     private(set) var errorMessage: String?
     private(set) var pendingSyncCount = 0
     private(set) var isOnline = false
     private(set) var lastSyncDate: Date?
+    private(set) var defaultSiteId: UUID?
 
     private var attendanceService: AttendanceService?
     private var employeeService: EmployeeService?
@@ -39,8 +39,8 @@ final class DTRViewModel {
     }
 
     var selectedSiteTitle: String? {
-        guard let selectedSiteId else { return nil }
-        return JobSiteStore.site(id: selectedSiteId)?.displayTitle
+        guard let defaultSiteId else { return nil }
+        return JobSiteStore.site(id: defaultSiteId)?.displayTitle
     }
 
     func configure(context: ModelContext, syncQueue: SyncQueue) {
@@ -52,11 +52,12 @@ final class DTRViewModel {
 
     func refresh() {
         guard let attendanceService, let employeeService else { return }
+        defaultSiteId = JobSiteStore.defaultSiteId ?? JobSiteStore.defaultSite?.id
         pendingSyncCount = syncQueue?.pendingCount ?? 0
         isOnline = NetworkMonitor.shared.isConnected
         lastSyncDate = syncQueue?.lastSyncDate
 
-        guard let selectedSiteId else {
+        guard let defaultSiteId else {
             rows = []
             errorMessage = nil
             return
@@ -69,7 +70,7 @@ final class DTRViewModel {
                 .addingTimeInterval(-0.001) ?? start
 
             let assignedEmployees = try employeeService.allEmployees()
-                .filter { $0.assignedSiteId == selectedSiteId }
+                .filter { $0.assignedSiteId == defaultSiteId }
                 .sorted {
                     $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
                 }

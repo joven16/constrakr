@@ -67,6 +67,9 @@ struct EmployeeListView: View {
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
                 viewModel.refresh()
             }
+            .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
+                viewModel.refresh()
+            }
             .refreshable {
                 await viewModel.syncNow()
             }
@@ -74,22 +77,55 @@ struct EmployeeListView: View {
 
     private var employeeList: some View {
         List {
+            if viewModel.defaultSiteId == nil {
+                Section {
+                    Label {
+                        Text("Set a default job site under More → Job Sites to filter employees and DTR.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } icon: {
+                        Image(systemName: "mappin.and.ellipse")
+                            .foregroundStyle(.orange)
+                    }
+                }
+            } else if let siteTitle = viewModel.defaultSiteTitle {
+                Section {
+                    Label {
+                        Text("Showing crew assigned to \(siteTitle)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } icon: {
+                        Image(systemName: "building.2.fill")
+                            .foregroundStyle(.teal)
+                    }
+                }
+            }
+
             if shouldShowSyncBanner {
                 syncBanner
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     .listRowSeparator(.hidden)
             }
 
-            if viewModel.employees.isEmpty {
+            if viewModel.defaultSiteId != nil && viewModel.employees.isEmpty {
                 ContentUnavailableView(
                     "No Employees",
                     systemImage: "person.slash",
-                    description: Text("Tap Register to enroll a new employee, or pull down to sync from the server.")
+                    description: Text("No one is assigned to the default job site yet, or pull down to sync from the server.")
                 )
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-            } else {
+            } else if viewModel.defaultSiteId == nil && viewModel.employees.isEmpty {
+                ContentUnavailableView(
+                    "No Default Site",
+                    systemImage: "mappin.slash",
+                    description: Text("Choose a default job site under More → Job Sites.")
+                )
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else if !viewModel.employees.isEmpty {
                 employeeRows
             }
         }

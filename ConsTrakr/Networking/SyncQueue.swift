@@ -29,6 +29,7 @@ final class SyncQueue {
     private var syncTask: Task<Void, Never>?
     private var historyClearObserver: NSObjectProtocol?
     private var networkObserver: NSObjectProtocol?
+    private var jobSitesObserver: NSObjectProtocol?
 
     init(api: APIService = .shared) {
         self.syncService = SyncService(api: api)
@@ -66,14 +67,33 @@ final class SyncQueue {
             }
         }
 
+        if jobSitesObserver == nil {
+            jobSitesObserver = NotificationCenter.default.addObserver(
+                forName: JobSiteStore.sitesDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshPendingCount()
+                }
+            }
+        }
+
         if NetworkMonitor.shared.isConnected {
             clearStaleOfflineError()
         }
     }
 
     private func handleNetworkConnectivityChange() {
-        if NetworkMonitor.shared.isConnected {
-            clearStaleOfflineError()
+        guard NetworkMonitor.shared.isConnected else { return }
+        clearStaleOfflineError()
+        refreshPendingCount()
+        Task {
+            if JobSiteStore.hasPendingSync {
+                await syncNow(mode: .quick, scope: .all)
+            } else {
+                await syncIfNeeded()
+            }
         }
     }
 
@@ -215,7 +235,7 @@ final class SyncQueue {
         let e = (try? employees.pendingCount()) ?? 0
         let f = (try? embeddings.pendingCount()) ?? 0
         let p = (try? photos.pendingCount()) ?? 0
-        pendingCount = a + e + f + p
+        pendingCount = a + e + f + p + JobSiteStore.pendingSyncCount
     }
 
     func updateSyncProgress(_ message: String?) {
