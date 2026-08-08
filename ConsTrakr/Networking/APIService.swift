@@ -559,6 +559,65 @@ actor APIService {
         return AttendanceUpsertResponse(serverId: parsed.serverId, localId: parsed.localId, timestamp: dto.timestamp)
     }
 
+    // MARK: - Devices
+
+    func registerDevice(localId: UUID, name: String, appVersion: String) async throws -> DeviceDTO {
+        try rejectIfUnconfigured()
+        var request = try makeRequest(for: .postDevice)
+        request.httpBody = try JSONEncoder.api.encode(
+            DeviceRegisterRequest(localId: localId, name: name, appVersion: appVersion)
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if isDemoHost {
+            return demoDevice()
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        return try JSONDecoder.api.decode(DeviceDTO.self, from: data)
+    }
+
+    func fetchDevice(localId: UUID) async throws -> DeviceDTO? {
+        try rejectIfUnconfigured()
+        let request = try makeRequest(for: .getDevice(localId))
+        if isDemoHost {
+            return demoDevice()
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        let decoded = try JSONDecoder.api.decode(DeviceLookupResponse.self, from: data)
+        return decoded.device
+    }
+
+    func verifyDeviceAdminCode(localId: UUID, passcode: String) async throws -> DeviceAdminCodeVerifyResponse {
+        try rejectIfUnconfigured()
+        var request = try makeRequest(for: .verifyDeviceAdminCode)
+        request.httpBody = try JSONEncoder.api.encode(
+            DeviceAdminCodeVerifyRequest(localId: localId, passcode: passcode)
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if isDemoHost {
+            guard passcode.count >= 4 else {
+                return DeviceAdminCodeVerifyResponse(valid: false, error: "invalid_passcode", assignedUserName: nil)
+            }
+            return DeviceAdminCodeVerifyResponse(valid: true, error: nil, assignedUserName: "Demo Admin")
+        }
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 401 || http.statusCode == 403 {
+            if let decoded = try? JSONDecoder.api.decode(DeviceAdminCodeVerifyResponse.self, from: data) {
+                return decoded
+            }
+        }
+        try validate(data: data, response: response)
+        return try JSONDecoder.api.decode(DeviceAdminCodeVerifyResponse.self, from: data)
+    }
+
+    private func demoDevice() -> DeviceDTO {
+        let json = """
+        {"local_id":"\(DeviceStore.localId.uuidString)","name":"Demo Device","admin_code_required":true,"assigned_user_name":"Demo Admin"}
+        """
+        return try! JSONDecoder.api.decode(DeviceDTO.self, from: Data(json.utf8))
+    }
+
     // MARK: - Helpers
 
     private static func makeSyncSession() -> URLSession {

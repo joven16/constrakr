@@ -130,6 +130,10 @@ final class SettingsViewModel {
 
     func setDefaultJobSiteId(_ id: UUID?) {
         guard !isSyncingDefaultSiteFromStore else { return }
+        applyDefaultJobSiteChange(to: id)
+    }
+
+    func applyDefaultJobSiteChange(to id: UUID?) {
         guard defaultJobSiteId != id else { return }
         defaultJobSiteId = id
         if JobSiteStore.defaultSiteId != id {

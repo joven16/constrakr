@@ -70,6 +70,10 @@ enum AppConstants {
         static let customDepartmentsJSON = "sync.customDepartmentsJSON"
         static let clockIntegrityCheckpoint = "settings.clockIntegrityCheckpoint"
         static let appTheme = "settings.appTheme"
+        static let deviceLocalId = "sync.deviceLocalId"
+        static let deviceAssignedUserName = "sync.deviceAssignedUserName"
+        static let deviceAssignedUserUsername = "sync.deviceAssignedUserUsername"
+        static let deviceAdminCodeRequired = "sync.deviceAdminCodeRequired"
     }
 
     enum Notifications {

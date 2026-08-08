@@ -31,6 +31,10 @@ enum APIEndpoint {
     case putJobSite(String)
     case deleteJobSite(String)
     case getDepartments
+    // Devices
+    case getDevice(UUID?)
+    case postDevice
+    case verifyDeviceAdminCode
     // Auth / health (restore gate)
     case adminLogin
     case healthCheck
@@ -57,6 +61,10 @@ enum APIEndpoint {
             return "\(Self.root)/job-sites/\(siteId)"
         case .getDepartments:
             return "\(Self.root)/departments"
+        case .getDevice, .postDevice:
+            return "\(Self.root)/devices"
+        case .verifyDeviceAdminCode:
+            return "\(Self.root)/devices/verify-admin-code"
         case .adminLogin:
             return "\(Self.root)/auth/admin/login"
         case .healthCheck:
@@ -105,6 +113,9 @@ enum APIEndpoint {
                 items.append(URLQueryItem(name: "updated_since", value: Self.dateTimeQueryString(updatedSince)))
             }
             return items
+        case .getDevice(let localId):
+            guard let localId else { return [] }
+            return [URLQueryItem(name: "local_id", value: localId.uuidString)]
         default:
             return []
         }
@@ -134,13 +145,13 @@ enum APIEndpoint {
 
     var method: String {
         switch self {
-        case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postEmployeeIdDocument, .postAttendance, .postJobSite, .adminLogin:
+        case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postEmployeeIdDocument, .postAttendance, .postJobSite, .postDevice, .adminLogin, .verifyDeviceAdminCode:
             return "POST"
         case .putEmployee, .putJobSite:
             return "PUT"
         case .deleteEmployee, .deleteJobSite:
             return "DELETE"
-        case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getEmployeeIdDocuments, .getAttendance, .getJobSites, .getDepartments, .healthCheck:
+        case .getEmployees, .getFaceEmbeddings, .getFaceEnrollmentPhotos, .getEmployeeIdDocuments, .getAttendance, .getJobSites, .getDepartments, .getDevice, .healthCheck:
             return "GET"
         }
     }
@@ -828,6 +839,85 @@ struct AttendanceUpsertResponse: Decodable {
 struct AdminLoginRequest: Codable {
     let username: String
     let password: String
+}
+
+struct DeviceRegisterRequest: Codable {
+    let localId: UUID
+    let name: String
+    let appVersion: String
+
+    enum CodingKeys: String, CodingKey {
+        case localId = "local_id"
+        case name
+        case appVersion = "app_version"
+    }
+}
+
+struct DeviceDTO: Codable {
+    let id: UUID?
+    let localId: UUID
+    let name: String?
+    let appVersion: String?
+    let assignedUserName: String?
+    let assignedUserUsername: String?
+    let adminCodeRequired: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case localId = "local_id"
+        case name
+        case appVersion = "app_version"
+        case assignedUserName = "assigned_user_name"
+        case assignedUserUsername = "assigned_user_username"
+        case adminCodeRequired = "admin_code_required"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let uuid = try? container.decode(UUID.self, forKey: .id) {
+            id = uuid
+        } else if let raw = try? container.decode(String.self, forKey: .id) {
+            id = UUID(uuidString: raw)
+        } else {
+            id = nil
+        }
+        localId = try container.decode(UUID.self, forKey: .localId)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
+        assignedUserName = try container.decodeIfPresent(String.self, forKey: .assignedUserName)
+        assignedUserUsername = try container.decodeIfPresent(String.self, forKey: .assignedUserUsername)
+        adminCodeRequired = try container.decodeIfPresent(Bool.self, forKey: .adminCodeRequired) ?? false
+    }
+}
+
+struct DeviceLookupResponse: Decodable {
+    let device: DeviceDTO?
+}
+
+struct DeviceAdminCodeVerifyRequest: Codable {
+    let localId: UUID
+    let passcode: String
+
+    enum CodingKeys: String, CodingKey {
+        case localId = "local_id"
+        case passcode
+    }
+}
+
+struct DeviceAdminCodeVerifyResponse: Decodable {
+    let valid: Bool
+    let error: String?
+    let assignedUserName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case valid
+        case error
+        case assignedUserName = "assigned_user_name"
+    }
+
+    var errorMessage: String? {
+        error
+    }
 }
 
 struct AdminLoginResponse: Decodable {

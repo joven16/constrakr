@@ -24,6 +24,9 @@ struct JobSiteEditorView: View {
     @State private var isSyncingCoordinateFields = false
     @State private var statusMessage: String?
     @State private var errorMessage: String?
+    @State private var showAdminCodePrompt = false
+    @State private var pendingSite: JobSite?
+    @State private var pendingSetDefault = false
 
     private var isEditing: Bool { existingSite != nil }
 
@@ -127,6 +130,25 @@ struct JobSiteEditorView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .sheet(isPresented: $showAdminCodePrompt) {
+            AdminCodePromptSheet(
+                title: "Set default site",
+                message: "Enter the admin code to make this the default job site on this device.",
+                confirmLabel: "Confirm",
+                onConfirm: { code in
+                    try await AdminCodeService.verify(passcode: code)
+                    if let pendingSite {
+                        commitSave(site: pendingSite, setDefault: pendingSetDefault)
+                    }
+                    showAdminCodePrompt = false
+                    self.pendingSite = nil
+                },
+                onCancel: {
+                    pendingSite = nil
+                    showAdminCodePrompt = false
+                }
+            )
+        }
     }
 
     private func loadExisting() {
@@ -194,8 +216,27 @@ struct JobSiteEditorView: View {
             longitude: longitude,
             radiusMeters: radiusMeters
         )
+        let setDefault = isDefaultSite || !isEditing || JobSiteStore.defaultSiteId == nil
+        let defaultIsChanging = setDefault && JobSiteStore.defaultSiteId != site.id
+
+        if defaultIsChanging {
+            do {
+                try AdminCodeService.ensureChangeAllowed()
+                pendingSite = site
+                pendingSetDefault = setDefault
+                showAdminCodePrompt = true
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+
+        commitSave(site: site, setDefault: setDefault)
+    }
+
+    private func commitSave(site: JobSite, setDefault: Bool) {
         JobSiteStore.upsert(site)
-        if isDefaultSite || !isEditing || JobSiteStore.defaultSiteId == nil {
+        if setDefault {
             JobSiteStore.setDefaultSite(id: site.id)
         }
         dismiss()

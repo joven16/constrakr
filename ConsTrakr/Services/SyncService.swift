@@ -71,6 +71,8 @@ final class SyncService {
             return try await performAttendanceOnlySync(context: context, dtrFocusDate: dtrFocusDate)
         }
 
+        await syncDeviceRegistration()
+
         var summary = PushSyncSummary()
         let empRepo = EmployeeRepository(context: context)
         _ = try empRepo.repairStaleSyncState()
@@ -1109,6 +1111,27 @@ final class SyncService {
                 let item = items[index]
                 index += 1
                 group.addTask { try await upload(item) }
+            }
+        }
+    }
+
+    /// Registers this installation with IMS and refreshes assigned-user admin code state.
+    private func syncDeviceRegistration() async {
+        guard await api.hasAuthToken() else { return }
+        do {
+            let device = try await api.registerDevice(
+                localId: DeviceStore.localId,
+                name: DeviceStore.displayName,
+                appVersion: DeviceStore.appVersion
+            )
+            DeviceStore.update(from: device)
+        } catch {
+            do {
+                if let device = try await api.fetchDevice(localId: DeviceStore.localId) {
+                    DeviceStore.update(from: device)
+                }
+            } catch {
+                // Non-fatal — default-site gating uses the last known assignment.
             }
         }
     }
