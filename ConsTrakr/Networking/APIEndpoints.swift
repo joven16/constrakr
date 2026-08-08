@@ -867,7 +867,7 @@ struct DeviceAssignedUserDTO: Decodable {
     }
 }
 
-struct DeviceDTO: Codable {
+struct DeviceDTO: Decodable {
     let id: UUID?
     let localId: UUID
     let name: String?
