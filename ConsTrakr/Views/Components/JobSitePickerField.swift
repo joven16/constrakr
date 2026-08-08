@@ -8,8 +8,12 @@ import SwiftUI
 struct JobSitePickerField: View {
     @Binding var selectedSiteId: UUID?
     var allowNone: Bool = false
+    var coordinateSitesOnly: Bool = true
 
-    private var sites: [JobSite] { JobSiteStore.allSites.filter(\.hasCoordinate) }
+    private var sites: [JobSite] {
+        let all = JobSiteStore.allSites
+        return coordinateSitesOnly ? all.filter(\.hasCoordinate) : all
+    }
 
     var body: some View {
         Group {
@@ -30,7 +34,9 @@ struct JobSitePickerField: View {
 
                 if let site = JobSiteStore.site(id: selectedSiteId) {
                     LabeledContent("Location", value: site.locationLabel.isEmpty ? "—" : site.locationLabel)
-                    LabeledContent("Radius", value: "\(Int(site.radiusMeters.rounded())) m")
+                    if coordinateSitesOnly {
+                        LabeledContent("Radius", value: "\(Int(site.radiusMeters.rounded())) m")
+                    }
                     Text(site.displaySubtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)

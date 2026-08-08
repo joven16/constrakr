@@ -12,20 +12,42 @@ import UIKit
 struct DTRView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncQueue.self) private var syncQueue
+    @Environment(AppTabRouter.self) private var tabRouter
     @State private var viewModel = DTRViewModel()
+
+    private var siteSelection: Binding<UUID?> {
+        Binding(
+            get: { tabRouter.dtrSiteFilterId },
+            set: { newValue in
+                tabRouter.dtrSiteFilterId = newValue
+                viewModel.selectedSiteId = newValue
+                viewModel.refresh()
+            }
+        )
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                datePicker
-                syncStatusBar
-                columnHeader
-                dtrList
+                sitePickerSection
+                if tabRouter.dtrSiteFilterId != nil {
+                    datePicker
+                    syncStatusBar
+                    columnHeader
+                    dtrList
+                } else {
+                    sitePrompt
+                }
             }
             .navigationTitle("DTR")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
+                viewModel.selectedSiteId = tabRouter.dtrSiteFilterId
                 viewModel.configure(context: modelContext, syncQueue: syncQueue)
+            }
+            .onChange(of: tabRouter.dtrSiteFilterId) { _, newValue in
+                viewModel.selectedSiteId = newValue
+                viewModel.refresh()
             }
             .onChange(of: syncQueue.pendingCount) { _, _ in
                 viewModel.refresh()
@@ -42,7 +64,36 @@ struct DTRView: View {
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceDidChange)) { _ in
                 viewModel.refresh()
             }
+            .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
+                viewModel.refresh()
+            }
         }
+    }
+
+    private var sitePickerSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Job site")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+            JobSitePickerField(
+                selectedSiteId: siteSelection,
+                coordinateSitesOnly: false
+            )
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
+        .padding(.top, 8)
+        .background(Color(.secondarySystemBackground).opacity(0.5))
+    }
+
+    private var sitePrompt: some View {
+        ContentUnavailableView(
+            "Select a job site",
+            systemImage: "building.2",
+            description: Text("Choose a site above to view daily time records for assigned employees.")
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var dtrList: some View {
@@ -52,7 +103,7 @@ struct DTRView: View {
                     ContentUnavailableView(
                         "No DTR for this date",
                         systemImage: "calendar.badge.exclamationmark",
-                        description: Text("Pull down to sync punches and IMS corrections for \(viewModel.dayTitle).")
+                        description: Text("No assigned employees or punches for \(viewModel.dayTitle).")
                     )
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Color.clear)
@@ -96,6 +147,10 @@ struct DTRView: View {
     private var syncStatusBar: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
+                if let siteTitle = viewModel.selectedSiteTitle {
+                    Text(siteTitle)
+                        .font(.caption.weight(.semibold))
+                }
                 HStack(spacing: 8) {
                     Label("\(viewModel.pendingSyncCount) pending", systemImage: "arrow.up.circle")
                         .font(.caption.weight(.semibold))

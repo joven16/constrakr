@@ -10,8 +10,9 @@ import SwiftData
 @Observable
 final class DashboardViewModel {
     private(set) var employeeCount = 0
+    private(set) var enrolledCount = 0
+    private(set) var unassignedCount = 0
     private(set) var pendingSyncCount = 0
-    private(set) var recentAttendance: [AttendanceDisplayItem] = []
     private(set) var siteSummaries: [SiteAttendanceSummary] = []
     private(set) var attendanceTotals = AttendanceTotals()
     private(set) var isOnline = false
@@ -26,15 +27,6 @@ final class DashboardViewModel {
             guard site.assignedCount > 0, let percent = site.coveragePercent else { return false }
             return percent < 70 || site.absentCount > 0
         }
-    }
-
-    struct AttendanceDisplayItem: Identifiable {
-        let id: UUID
-        let name: String
-        let code: String
-        let checkType: CheckType
-        let timestamp: Date
-        let syncStatus: SyncStatus
     }
 
     struct SiteAttendanceSummary: Identifiable {
@@ -91,6 +83,9 @@ final class DashboardViewModel {
         guard let employeeService, let attendanceService else { return }
         do {
             employeeCount = try employeeService.count()
+            let employees = try employeeService.allEmployees()
+            enrolledCount = employees.filter(\.isEnrolled).count
+            unassignedCount = employees.filter { $0.assignedSiteId == nil }.count
             if let syncPending = syncQueue?.pendingCount {
                 pendingSyncCount = syncPending
             } else {
@@ -98,19 +93,6 @@ final class DashboardViewModel {
             }
             isOnline = NetworkMonitor.shared.isConnected
 
-            let recent = try attendanceService.history().prefix(8)
-            recentAttendance = recent.map { record in
-                AttendanceDisplayItem(
-                    id: record.id,
-                    name: attendanceService.employeeName(for: record),
-                    code: attendanceService.employeeCode(for: record),
-                    checkType: record.checkType,
-                    timestamp: record.timestamp,
-                    syncStatus: record.syncStatus
-                )
-            }
-
-            let employees = try employeeService.allEmployees()
             let calendar = Calendar.current
             let start = calendar.startOfDay(for: Date())
             let end = calendar.date(byAdding: .day, value: 1, to: start)?

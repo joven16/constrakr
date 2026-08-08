@@ -25,7 +25,7 @@ struct DashboardView: View {
                     if !viewModel.sitesNeedingAttention.isEmpty {
                         attentionSection
                     }
-                    recentAttendanceSection
+                    rosterMetricsSection
                 }
                 .padding()
             }
@@ -141,7 +141,7 @@ struct DashboardView: View {
             } else {
                 ForEach(viewModel.siteSummaries) { site in
                     SiteAttendanceCard(site: site) {
-                        tabRouter.selectedTab = .dtr
+                        tabRouter.openDTR(forSiteId: site.id)
                     }
                 }
                 Text("Sorted by lowest coverage first")
@@ -199,67 +199,58 @@ struct DashboardView: View {
         return parts.joined(separator: " · ")
     }
 
-    private var recentAttendanceSection: some View {
+    private var rosterMetricsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Live feed")
-                        .font(.headline)
-                    Text("Latest punches on this device")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if !viewModel.recentAttendance.isEmpty {
-                    Button("DTR") {
-                        tabRouter.selectedTab = .dtr
-                    }
-                    .font(.caption)
-                }
-            }
+            Label("Roster & sync", systemImage: "person.3.sequence.fill")
+                .font(.headline)
 
-            if viewModel.recentAttendance.isEmpty {
-                ContentUnavailableView(
-                    "No attendance yet",
-                    systemImage: "clock",
-                    description: Text("Use the Scanner tab to record check-ins.")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                metricTile(
+                    title: "Enrolled",
+                    value: "\(viewModel.enrolledCount)/\(viewModel.employeeCount)",
+                    subtitle: "Face-ready for scanner",
+                    tint: viewModel.enrolledCount == viewModel.employeeCount && viewModel.employeeCount > 0 ? .green : .indigo
                 )
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-            } else {
-                ForEach(Array(viewModel.recentAttendance.enumerated()), id: \.element.id) { index, item in
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(spacing: 0) {
-                            Circle()
-                                .fill(item.checkType == .checkIn ? Color.green : Color.orange)
-                                .frame(width: 10, height: 10)
-                            if index < viewModel.recentAttendance.count - 1 {
-                                Rectangle()
-                                    .fill(Color(.tertiarySystemFill))
-                                    .frame(width: 2)
-                                    .frame(maxHeight: .infinity)
-                            }
-                        }
-                        .frame(width: 10)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(item.name)
-                                    .font(.subheadline.weight(.semibold))
-                                Spacer()
-                                StatusBadge(status: item.syncStatus)
-                            }
-                            Text("\(item.code) · \(item.checkType.displayName) · \(item.timestamp.attendanceDisplay)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
+                metricTile(
+                    title: "Unassigned",
+                    value: "\(viewModel.unassignedCount)",
+                    subtitle: "No job site yet",
+                    tint: viewModel.unassignedCount > 0 ? .orange : .secondary
+                )
+                metricTile(
+                    title: "Job sites",
+                    value: "\(viewModel.siteSummaries.count)",
+                    subtitle: "Active on device",
+                    tint: .cyan
+                )
+                metricTile(
+                    title: "Pending sync",
+                    value: "\(viewModel.pendingSyncCount)",
+                    subtitle: viewModel.isOnline ? "Tap sync icon above" : "Offline — will retry",
+                    tint: viewModel.pendingSyncCount > 0 ? .orange : .secondary
+                )
             }
         }
         .padding()
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func metricTile(title: String, value: String, subtitle: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.title3.bold())
+                .foregroundStyle(tint)
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func coverageColor(for percent: Int) -> Color {

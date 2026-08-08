@@ -10,6 +10,7 @@ import SwiftData
 @Observable
 final class DTRViewModel {
     var selectedDate: Date = Date()
+    var selectedSiteId: UUID?
 
     private(set) var rows: [DTRRow] = []
     private(set) var errorMessage: String?
@@ -18,6 +19,7 @@ final class DTRViewModel {
     private(set) var lastSyncDate: Date?
 
     private var attendanceService: AttendanceService?
+    private var employeeService: EmployeeService?
     private var syncQueue: SyncQueue?
 
     struct DTRRow: Identifiable {
@@ -36,17 +38,29 @@ final class DTRViewModel {
         selectedDate.formatted(date: .complete, time: .omitted)
     }
 
+    var selectedSiteTitle: String? {
+        guard let selectedSiteId else { return nil }
+        return JobSiteStore.site(id: selectedSiteId)?.displayTitle
+    }
+
     func configure(context: ModelContext, syncQueue: SyncQueue) {
         attendanceService = AttendanceService(context: context)
+        employeeService = EmployeeService(context: context)
         self.syncQueue = syncQueue
         refresh()
     }
 
     func refresh() {
-        guard let attendanceService else { return }
+        guard let attendanceService, let employeeService else { return }
         pendingSyncCount = syncQueue?.pendingCount ?? 0
         isOnline = NetworkMonitor.shared.isConnected
         lastSyncDate = syncQueue?.lastSyncDate
+
+        guard let selectedSiteId else {
+            rows = []
+            errorMessage = nil
+            return
+        }
 
         do {
             let calendar = Calendar.current
@@ -54,7 +68,15 @@ final class DTRViewModel {
             let end = calendar.date(byAdding: .day, value: 1, to: start)?
                 .addingTimeInterval(-0.001) ?? start
 
+            let assignedEmployees = try employeeService.allEmployees()
+                .filter { $0.assignedSiteId == selectedSiteId }
+                .sorted {
+                    $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
+                }
+
+            let employeeIds = Set(assignedEmployees.map(\.id))
             let fetched = try attendanceService.history(from: start, to: end)
+                .filter { employeeIds.contains($0.employeeId) }
 
             struct Acc {
                 var name: String
@@ -68,15 +90,19 @@ final class DTRViewModel {
             }
 
             var byEmployee: [UUID: Acc] = [:]
-            for record in fetched {
-                var acc = byEmployee[record.employeeId] ?? Acc(
-                    name: attendanceService.employeeName(for: record),
-                    code: attendanceService.employeeCode(for: record),
+            for employee in assignedEmployees {
+                byEmployee[employee.id] = Acc(
+                    name: employee.fullName,
+                    code: employee.employeeCode,
                     timeIn: nil,
                     timeOut: nil,
                     timeInAttendanceId: nil,
                     timeOutAttendanceId: nil
                 )
+            }
+
+            for record in fetched {
+                guard var acc = byEmployee[record.employeeId] else { continue }
                 let isManual = Self.isManualCorrection(record)
                 switch record.checkType {
                 case .checkIn:
@@ -95,9 +121,10 @@ final class DTRViewModel {
                 byEmployee[record.employeeId] = acc
             }
 
-            rows = byEmployee.map { id, acc in
-                DTRRow(
-                    id: id,
+            rows = assignedEmployees.compactMap { employee in
+                guard let acc = byEmployee[employee.id] else { return nil }
+                return DTRRow(
+                    id: employee.id,
                     employeeName: acc.name,
                     employeeCode: acc.code,
                     timeIn: acc.timeIn,
@@ -108,7 +135,6 @@ final class DTRViewModel {
                     timeOutCorrected: acc.timeOutCorrected
                 )
             }
-            .sorted { $0.employeeName.localizedCaseInsensitiveCompare($1.employeeName) == .orderedAscending }
 
             errorMessage = nil
         } catch {
