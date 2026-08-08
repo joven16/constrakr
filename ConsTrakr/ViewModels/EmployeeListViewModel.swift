@@ -63,7 +63,7 @@ final class EmployeeListViewModel {
             reloadEmployeesOnly()
         }
 
-        await syncQueue?.syncNow()
+        await syncQueue?.syncNow(mode: .quick)
         cloudReport = syncQueue?.lastEmployeeSyncReport
         cloudCheckErrorMessage = syncQueue?.lastError
     }

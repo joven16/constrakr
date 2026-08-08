@@ -138,6 +138,9 @@ struct EmployeeListView: View {
     }
 
     private var syncStatusLine: String {
+        if let progress = syncQueue.syncProgressMessage, !progress.isEmpty {
+            return progress
+        }
         var parts: [String] = []
         if syncQueue.pendingCount > 0 {
             parts.append("\(syncQueue.pendingCount) pending")

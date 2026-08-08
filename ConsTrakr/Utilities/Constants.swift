@@ -41,6 +41,8 @@ enum AppConstants {
         static let apiBaseURL = "settings.apiBaseURL"
         static let autoSyncEnabled = "settings.autoSyncEnabled"
         static let syncIntervalMinutes = "settings.syncIntervalMinutes"
+    static let uploadLargeFilesOnWiFiOnly = "settings.uploadLargeFilesOnWiFiOnly"
+    static let lastFullRosterSyncAt = "settings.lastFullRosterSyncAt"
         static let matchThreshold = "settings.matchThreshold"
         static let hasSeededMockData = "app.hasSeededMockData"
         static let uploadRawFramesEnabled = "settings.uploadRawFramesEnabled"

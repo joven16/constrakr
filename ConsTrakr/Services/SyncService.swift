@@ -57,7 +57,7 @@ final class SyncService {
     // MARK: - Push pipeline (called by SyncQueue)
 
     /// Uploads pending local changes in dependency order.
-    func performPushSync(context: ModelContext) async throws -> PushSyncSummary {
+    func performPushSync(context: ModelContext, mode: SyncMode = .full) async throws -> PushSyncSummary {
         guard NetworkMonitor.shared.isConnected else {
             throw NetworkError.offline
         }
@@ -66,28 +66,27 @@ final class SyncService {
         let empRepo = EmployeeRepository(context: context)
         _ = try empRepo.repairStaleSyncState()
 
-        summary.jobSitesSynced = try await syncJobSites(context: context)
+        reportProgress("Syncing job sites…")
+        async let jobSitesTask = syncJobSites(context: context)
         await processPendingEmployeeDeletions()
-
         await warmConnectionIfNeeded()
-        var remoteEmployees = try await api.getEmployees()
-        var remoteParsed = APIDecoding.EmployeeListDecodeResult(
-            employees: remoteEmployees,
-            rawCount: remoteEmployees.count
-        )
-        cacheRemoteEmployees(remoteEmployees)
 
+        reportProgress(mode == .quick ? "Checking updates…" : "Downloading roster…")
+        async let rosterTask: RemoteRosterFetch = fetchRemoteRoster(mode: mode)
+        summary.jobSitesSynced = try await jobSitesTask
+        let rosterResult = try await rosterTask
+        var remoteEmployees = rosterResult.employees
+        var remoteParsed = rosterResult.parsed
+
+        reportProgress("Applying IMS changes…")
         summary.employeesImportedFromIMS = try await importMissingRemoteEmployees(
             context: context,
             remoteEmployees: remoteEmployees
         )
         if summary.employeesImportedFromIMS > 0 {
-            remoteEmployees = try await api.getEmployees()
-            remoteParsed = APIDecoding.EmployeeListDecodeResult(
-                employees: remoteEmployees,
-                rawCount: remoteEmployees.count
-            )
-            cacheRemoteEmployees(remoteEmployees)
+            let refreshed = try await fetchRemoteRoster(mode: .full)
+            remoteEmployees = refreshed.employees
+            remoteParsed = refreshed.parsed
         }
 
         summary.profilesMergedFromIMS = try await mergeRemoteEmployeeProfileUpdates(
@@ -100,21 +99,25 @@ final class SyncService {
             remoteEmployees: remoteEmployees
         )
 
-        do {
-            try EmployeeChildSyncPreparer.prepareAll(context: context, persist: true)
-        } catch {
-            // Non-fatal — upload steps also prepare per employee.
+        if try shouldPrepareChildRows(context: context, mode: mode) {
+            do {
+                try EmployeeChildSyncPreparer.prepareAll(context: context, persist: true)
+            } catch {
+                // Non-fatal — upload steps also prepare per employee.
+            }
         }
         _ = try FaceEmbeddingRepository(context: context).repairStuckSync()
         _ = try FaceEnrollmentPhotoRepository(context: context).repairStuckSync()
         _ = try EmployeeIdDocumentRepository(context: context).repairStuckSync()
 
-        if shouldReconcileRemoteChildAssets(context: context) {
+        if shouldReconcileRemoteChildAssets(context: context, mode: mode) {
+            reportProgress("Verifying photos & ID documents…")
             try await reconcileRemoteChildAssets(context: context)
             lastChildAssetsReconcileAt = Date()
         }
 
         guard try hasPendingPushWork(context: context) else {
+            reportProgress("Verifying roster…")
             summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
             summary.employeesLocalTotal = try empRepo.count()
             let report = try await EmployeeSyncChecker.check(
@@ -124,18 +127,22 @@ final class SyncService {
             )
             summary.apply(report)
             summary.employeeSyncReport = report
+            reportProgress(nil)
             return summary
         }
 
+        reportProgress("Uploading employees…")
         summary = try await uploadPendingEmployees(context: context, summary: summary)
         try await uploadUpdatedEmployees(context: context)
         try await pushChangedJobSiteAssignments(
             context: context,
             remoteEmployees: remoteEmployees
         )
+        reportProgress("Uploading face data…")
         summary = try await uploadPendingEmbeddings(context: context, summary: summary)
         summary = try await uploadPendingEnrollmentPhotos(context: context, summary: summary)
         summary = try await uploadPendingIdDocuments(context: context, summary: summary)
+        reportProgress("Uploading attendance…")
         try await uploadPendingAttendance(context: context)
 
         if summary.employeesPosted > 0
@@ -144,17 +151,15 @@ final class SyncService {
             || summary.embeddingsUploaded > 0
             || summary.photosUploaded > 0
             || summary.idDocumentsUploaded > 0 {
-            remoteEmployees = try await api.getEmployees()
-            remoteParsed = APIDecoding.EmployeeListDecodeResult(
-                employees: remoteEmployees,
-                rawCount: remoteEmployees.count
-            )
-            cacheRemoteEmployees(remoteEmployees)
+            let refreshed = try await fetchRemoteRoster(mode: .full)
+            remoteEmployees = refreshed.employees
+            remoteParsed = refreshed.parsed
         }
 
+        reportProgress("Verifying roster…")
         let report = try await EmployeeSyncChecker.check(
             context: context,
-            repair: true,
+            repair: mode == .full,
             preloadedParsed: remoteParsed
         )
         summary.apply(report)
@@ -169,7 +174,85 @@ final class SyncService {
             summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
         }
 
+        reportProgress(nil)
         return summary
+    }
+
+    private func reportProgress(_ message: String?) {
+        queue?.updateSyncProgress(message)
+    }
+
+    private struct RemoteRosterFetch {
+        let employees: [EmployeeDTO]
+        let parsed: APIDecoding.EmployeeListDecodeResult
+    }
+
+    private func fetchRemoteRoster(mode: SyncMode) async throws -> RemoteRosterFetch {
+        switch mode {
+        case .full:
+            let remote = try await api.getEmployees()
+            SyncSettings.recordFullRosterSync()
+            cacheRemoteEmployees(remote)
+            let parsed = APIDecoding.EmployeeListDecodeResult(
+                employees: remote,
+                rawCount: remote.count
+            )
+            return RemoteRosterFetch(employees: remote, parsed: parsed)
+
+        case .quick:
+            if let since = SyncSettings.lastFullRosterSyncDate,
+               let cached = cachedRemoteEmployeeIndex,
+               let cachedAt = cachedRemoteEmployeeIndexAt,
+               Date().timeIntervalSince(cachedAt) < remoteEmployeeCacheTTL {
+                let delta = try await api.getEmployees(updatedSince: since.addingTimeInterval(-120))
+                if delta.isEmpty {
+                    let employees = cached.allEmployees
+                    let parsed = APIDecoding.EmployeeListDecodeResult(
+                        employees: employees,
+                        rawCount: employees.count
+                    )
+                    return RemoteRosterFetch(employees: employees, parsed: parsed)
+                }
+                var index = cached
+                for dto in delta {
+                    index.insert(dto)
+                }
+                cachedRemoteEmployeeIndex = index
+                cachedRemoteEmployeeIndexAt = Date()
+                let merged = index.allEmployees
+                let parsed = APIDecoding.EmployeeListDecodeResult(
+                    employees: merged,
+                    rawCount: merged.count
+                )
+                return RemoteRosterFetch(employees: merged, parsed: parsed)
+            }
+
+            let remote = try await api.getEmployees()
+            SyncSettings.recordFullRosterSync()
+            cacheRemoteEmployees(remote)
+            let parsed = APIDecoding.EmployeeListDecodeResult(
+                employees: remote,
+                rawCount: remote.count
+            )
+            return RemoteRosterFetch(employees: remote, parsed: parsed)
+        }
+    }
+
+    private func shouldPrepareChildRows(context: ModelContext, mode: SyncMode) throws -> Bool {
+        if mode == .full { return true }
+        let embeddings = FaceEmbeddingRepository(context: context)
+        let photos = FaceEnrollmentPhotoRepository(context: context)
+        let idDocuments = EmployeeIdDocumentRepository(context: context)
+        let employees = EmployeeRepository(context: context)
+        return try employees.pendingCount() > 0
+            || embeddings.pendingCount() > 0
+            || photos.pendingCount() > 0
+            || idDocuments.pendingCount() > 0
+    }
+
+    private func shouldUploadLargeMedia() -> Bool {
+        guard SyncSettings.uploadLargeFilesOnWiFiOnly else { return true }
+        return NetworkMonitor.shared.isOnWiFi
     }
 
     private func warmConnectionIfNeeded() async {
@@ -187,10 +270,11 @@ final class SyncService {
         cachedRemoteEmployeeIndexAt = Date()
     }
 
-    private func shouldReconcileRemoteChildAssets(context: ModelContext) -> Bool {
+    private func shouldReconcileRemoteChildAssets(context: ModelContext, mode: SyncMode) -> Bool {
         let photoPending = (try? FaceEnrollmentPhotoRepository(context: context).pendingCount()) ?? 0
         let idDocPending = (try? EmployeeIdDocumentRepository(context: context).pendingCount()) ?? 0
         if photoPending > 0 || idDocPending > 0 { return true }
+        if mode == .quick { return false }
         guard let lastChildAssetsReconcileAt else { return true }
         return Date().timeIntervalSince(lastChildAssetsReconcileAt) >= photoReconcileTTL
     }
@@ -484,7 +568,10 @@ final class SyncService {
         }
         guard !syncedEmployees.isEmpty else { return }
 
-        let allRemotePhotos = try await api.getFaceEnrollmentPhotos(includeMedia: false)
+        async let remotePhotosTask = api.getFaceEnrollmentPhotos(includeMedia: false)
+        async let remoteIdDocsTask = api.getEmployeeIdDocuments(includeMedia: false)
+        let (allRemotePhotos, allRemoteIdDocs) = try await (remotePhotosTask, remoteIdDocsTask)
+
         var posesByServerId: [String: Set<String>] = [:]
         for dto in allRemotePhotos {
             guard let serverId = dto.employeeServerId else { continue }
@@ -502,7 +589,6 @@ final class SyncService {
             try EmployeeChildSyncPreparer.prepare(for: employee, context: context, persist: false)
         }
 
-        let allRemoteIdDocs = try await api.getEmployeeIdDocuments(includeMedia: false)
         var remoteIdDocMetaByServerId: [String: EmployeeIdDocumentDTO] = [:]
         for dto in allRemoteIdDocs {
             guard let serverId = dto.employeeServerId,
@@ -626,6 +712,8 @@ final class SyncService {
         summary: PushSyncSummary
     ) async throws -> PushSyncSummary {
         var summary = summary
+        guard shouldUploadLargeMedia() else { return summary }
+
         let photoRepo = FaceEnrollmentPhotoRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
 
@@ -678,13 +766,14 @@ final class SyncService {
             entity.syncStatus = .syncing
             try photoRepo.update(entity, persist: false)
 
+            let compressed = JPEGUploadCompressor.compressForUpload(jpeg)
             let dto = FaceEnrollmentPhotoDTO(
                 serverId: nil,
                 localId: entity.id,
                 employeeServerId: serverId,
                 employeeLocalId: entity.employeeLocalId,
                 pose: entity.poseRaw,
-                jpegBase64: jpeg.base64EncodedString()
+                jpegBase64: compressed.base64EncodedString()
             )
             do {
                 let response = try await self.api.postFaceEnrollmentPhoto(dto)
@@ -709,6 +798,8 @@ final class SyncService {
         summary: PushSyncSummary
     ) async throws -> PushSyncSummary {
         var summary = summary
+        guard shouldUploadLargeMedia() else { return summary }
+
         let idDocRepo = EmployeeIdDocumentRepository(context: context)
         let empRepo = EmployeeRepository(context: context)
 
@@ -737,13 +828,14 @@ final class SyncService {
             entity.syncStatus = .syncing
             try idDocRepo.update(entity, persist: false)
 
+            let compressed = JPEGUploadCompressor.compressForUpload(jpeg)
             let dto = EmployeeIdDocumentDTO(
                 employeeServerId: serverId,
                 employeeLocalId: entity.employeeLocalId,
                 idType: entity.idTypeRaw,
                 idNumber: entity.idNumber.isEmpty ? nil : entity.idNumber,
                 capturedAt: entity.capturedAt,
-                jpegBase64: jpeg.base64EncodedString()
+                jpegBase64: compressed.base64EncodedString()
             )
             do {
                 _ = try await self.api.postEmployeeIdDocument(dto)

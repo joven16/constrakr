@@ -34,10 +34,24 @@ struct SettingsView: View {
                 }
                 if viewModel.isSyncing {
                     LabeledContent("Sync") {
-                        ProgressView()
+                        VStack(alignment: .leading, spacing: 4) {
+                            ProgressView()
+                            if let progress = viewModel.syncProgressMessage {
+                                Text(progress)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
                 Toggle("Auto Sync", isOn: $viewModel.autoSyncEnabled)
+                Toggle("Photos & ID on Wi‑Fi only", isOn: $viewModel.uploadLargeFilesOnWiFiOnly)
+                if viewModel.isAdminAuthenticated {
+                    Button("Full Sync Now") {
+                        Task { await viewModel.syncNowFull() }
+                    }
+                    .disabled(viewModel.isSyncing || !viewModel.isOnline)
+                }
                 if viewModel.autoSyncEnabled {
                     Stepper(value: $viewModel.syncIntervalMinutes, in: SyncSettings.minIntervalMinutes...SyncSettings.maxIntervalMinutes) {
                         Text("Every \(viewModel.syncIntervalMinutes) min")
@@ -49,9 +63,9 @@ struct SettingsView: View {
                 if let status = viewModel.statusMessage {
                     Text(status)
                 } else if viewModel.autoSyncEnabled {
-                    Text("Manual sync is on the Employees tab. Auto sync runs every \(SyncSettings.intervalLabel) while the app is open and on iOS background refresh (same interval; iOS may defer when battery is low). Sign in to IMS first.")
+                    Text("Pull down on Employees for a quick sync. Auto sync and Full Sync Now run a complete pass (roster verify + photo reconcile). Sign in to IMS first.")
                 } else {
-                    Text("Auto sync is off. Sync manually from the Employees tab. Sign in to IMS first.")
+                    Text("Auto sync is off. Pull down on Employees for quick sync, or use Full Sync Now here. Sign in to IMS first.")
                 }
             }
 
@@ -286,6 +300,9 @@ struct SettingsView: View {
             viewModel.refresh()
         }
         .onChange(of: syncQueue.isSyncing) { _, _ in
+            viewModel.refresh()
+        }
+        .onChange(of: syncQueue.syncProgressMessage) { _, _ in
             viewModel.refresh()
         }
         .onChange(of: syncQueue.lastSyncDate) { _, _ in

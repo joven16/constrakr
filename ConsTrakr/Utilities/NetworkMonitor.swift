@@ -40,4 +40,14 @@ final class NetworkMonitor {
     deinit {
         monitor.cancel()
     }
+
+    var isOnWiFi: Bool {
+        guard isConnected else { return false }
+        switch connectionType {
+        case .wifi, .wiredEthernet:
+            return true
+        default:
+            return false
+        }
+    }
 }

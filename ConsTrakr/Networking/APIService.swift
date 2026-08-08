@@ -161,12 +161,12 @@ actor APIService {
     func fetchEmployeesData(
         localId: UUID? = nil,
         employeeCode: String? = nil,
-        serverId: String? = nil
+        serverId: String? = nil,
+        updatedSince: Date? = nil
     ) async throws -> Data {
         try rejectIfUnconfigured()
         var request = try makeRequest(for: .getEmployees)
-        if localId != nil || employeeCode != nil || serverId != nil,
-           let url = request.url,
+        if let url = request.url,
            var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             var query = components.queryItems ?? []
             if let localId {
@@ -178,8 +178,15 @@ actor APIService {
             if let serverId, !serverId.isEmpty {
                 query.append(URLQueryItem(name: "server_id", value: serverId))
             }
-            components.queryItems = query
-            request.url = components.url
+            if let updatedSince {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                query.append(URLQueryItem(name: "updated_since", value: formatter.string(from: updatedSince)))
+            }
+            if !query.isEmpty {
+                components.queryItems = query
+                request.url = components.url
+            }
         }
         if isDemoHost { return Data("{}".utf8) }
         let (data, response) = try await session.data(for: request)
@@ -190,12 +197,12 @@ actor APIService {
     func getEmployees(
         localId: UUID? = nil,
         employeeCode: String? = nil,
-        serverId: String? = nil
+        serverId: String? = nil,
+        updatedSince: Date? = nil
     ) async throws -> [EmployeeDTO] {
         try rejectIfUnconfigured()
         var request = try makeRequest(for: .getEmployees)
-        if localId != nil || employeeCode != nil || serverId != nil,
-           let url = request.url,
+        if let url = request.url,
            var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             var query = components.queryItems ?? []
             if let localId {
@@ -207,8 +214,15 @@ actor APIService {
             if let serverId, !serverId.isEmpty {
                 query.append(URLQueryItem(name: "server_id", value: serverId))
             }
-            components.queryItems = query
-            request.url = components.url
+            if let updatedSince {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                query.append(URLQueryItem(name: "updated_since", value: formatter.string(from: updatedSince)))
+            }
+            if !query.isEmpty {
+                components.queryItems = query
+                request.url = components.url
+            }
         }
         if isDemoHost { return [] }
         let (data, response) = try await session.data(for: request)

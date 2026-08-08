@@ -104,7 +104,7 @@ struct EmployeeEditView: View {
                 department: department,
                 assignedSiteId: assignedSiteId
             )
-            Task { await syncQueue.syncNow() }
+            Task { await syncQueue.syncNow(mode: .quick) }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

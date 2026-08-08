@@ -22,6 +22,7 @@ final class SyncQueue {
     private(set) var lastRestoreMessage: String?
     private(set) var lastPushSummary: SyncService.PushSyncSummary?
     private(set) var lastEmployeeSyncReport: EmployeeSyncReport?
+    private(set) var syncProgressMessage: String?
 
     private let syncService: SyncService
     private var context: ModelContext?
@@ -106,13 +107,14 @@ final class SyncQueue {
             return
         }
         clearStaleOfflineError()
-        await syncNow()
+        await syncNow(mode: .full)
     }
 
-    func syncNow() async {
+    func syncNow(mode: SyncMode = .full) async {
         guard !isSyncing, let context else { return }
 
         lastSyncAttemptDate = Date()
+        syncProgressMessage = mode == .quick ? "Quick sync…" : "Syncing…"
         await AdminSession.shared.restorePersistedSession()
 
         if await APIService.shared.isUsingPlaceholderHost() {
@@ -139,11 +141,12 @@ final class SyncQueue {
         isSyncing = true
         defer {
             isSyncing = false
+            syncProgressMessage = nil
             refreshPendingCount()
         }
 
         do {
-            let summary = try await syncService.performPushSync(context: context)
+            let summary = try await syncService.performPushSync(context: context, mode: mode)
             lastPushSummary = summary
             lastEmployeeSyncReport = summary.employeeSyncReport
             lastSyncDate = Date()
@@ -208,6 +211,10 @@ final class SyncQueue {
         let f = (try? embeddings.pendingCount()) ?? 0
         let p = (try? photos.pendingCount()) ?? 0
         pendingCount = a + e + f + p
+    }
+
+    func updateSyncProgress(_ message: String?) {
+        syncProgressMessage = message
     }
 
     /// Compare local roster vs IMS without uploading.

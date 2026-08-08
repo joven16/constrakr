@@ -947,7 +947,7 @@ final class AttendanceScannerViewModel {
             syncQueue?.refreshPendingCount()
 
             if NetworkMonitor.shared.isConnected {
-                Task { await syncQueue?.syncNow() }
+                Task { await syncQueue?.syncNow(mode: .quick) }
             }
 
             try? await Task.sleep(for: .seconds(AppConstants.scannerResultDismissDelay))

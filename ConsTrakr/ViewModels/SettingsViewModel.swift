@@ -41,6 +41,12 @@ final class SettingsViewModel {
         }
     }
 
+    var uploadLargeFilesOnWiFiOnly: Bool {
+        didSet {
+            SyncSettings.uploadLargeFilesOnWiFiOnly = uploadLargeFilesOnWiFiOnly
+        }
+    }
+
     var matchThreshold: Double {
         didSet {
             UserDefaults.standard.set(matchThreshold, forKey: AppConstants.UserDefaultsKeys.matchThreshold)
@@ -152,6 +158,7 @@ final class SettingsViewModel {
     private(set) var pendingCount = 0
     private(set) var lastSyncDate: Date?
     private(set) var isSyncing = false
+    private(set) var syncProgressMessage: String?
     private(set) var isOnline = false
     private(set) var isAdminAuthenticated = false
     private(set) var statusMessage: String?
@@ -167,6 +174,7 @@ final class SettingsViewModel {
             ?? AppConstants.apiBaseURL
         autoSyncEnabled = UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.autoSyncEnabled) as? Bool ?? true
         syncIntervalMinutes = SyncSettings.intervalMinutes
+        uploadLargeFilesOnWiFiOnly = SyncSettings.uploadLargeFilesOnWiFiOnly
         matchThreshold = Double(MatchThresholdSettings.current)
         uploadRawFramesEnabled = UserDefaults.standard.bool(forKey: AppConstants.UserDefaultsKeys.uploadRawFramesEnabled)
         supervisorPINEnabled = SupervisorPINSettings.isRequired
@@ -195,6 +203,7 @@ final class SettingsViewModel {
         pendingCount = syncQueue?.pendingCount ?? 0
         lastSyncDate = syncQueue?.lastSyncDate
         isSyncing = syncQueue?.isSyncing ?? false
+        syncProgressMessage = syncQueue?.syncProgressMessage
         isOnline = NetworkMonitor.shared.isConnected
         if adminUsername.isEmpty, let saved = SyncAuthStore.loadUsername() {
             adminUsername = saved
@@ -293,6 +302,20 @@ final class SettingsViewModel {
         AdminSession.shared.signOut()
         refresh()
         statusMessage = "Admin signed out."
+    }
+
+    func syncNowFull() async {
+        guard AdminSession.shared.isAuthenticated else {
+            statusMessage = "Sign in as admin before syncing."
+            return
+        }
+        await syncQueue?.syncNow(mode: .full)
+        refresh()
+        if let error = syncQueue?.lastError, !error.isEmpty {
+            statusMessage = error
+        } else {
+            statusMessage = syncQueue?.lastPushSummary?.successMessage ?? "Sync complete."
+        }
     }
 
     func restoreFromServer() async {

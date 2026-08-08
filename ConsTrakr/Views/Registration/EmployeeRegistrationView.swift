@@ -11,6 +11,7 @@ struct EmployeeRegistrationView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(AppTabRouter.self) private var tabRouter
+    @Environment(SyncQueue.self) private var syncQueue
     @State private var viewModel = EmployeeRegistrationViewModel()
     @State private var showRegistrationSuccessAlert = false
 
@@ -54,6 +55,7 @@ struct EmployeeRegistrationView: View {
         }
         .alert("Registration Complete", isPresented: $showRegistrationSuccessAlert) {
             Button("OK") {
+                Task { await syncQueue.syncNow(mode: .full) }
                 tabRouter.selectedTab = .employees
                 dismiss()
             }

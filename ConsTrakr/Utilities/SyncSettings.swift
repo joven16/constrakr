@@ -31,4 +31,23 @@ enum SyncSettings {
     static var intervalLabel: String {
         intervalMinutes == 1 ? "1 minute" : "\(intervalMinutes) minutes"
     }
+
+    static var uploadLargeFilesOnWiFiOnly: Bool {
+        get {
+            UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.uploadLargeFilesOnWiFiOnly) as? Bool ?? false
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: AppConstants.UserDefaultsKeys.uploadLargeFilesOnWiFiOnly)
+        }
+    }
+
+    static var lastFullRosterSyncDate: Date? {
+        let raw = UserDefaults.standard.double(forKey: AppConstants.UserDefaultsKeys.lastFullRosterSyncAt)
+        guard raw > 0 else { return nil }
+        return Date(timeIntervalSince1970: raw)
+    }
+
+    static func recordFullRosterSync(at date: Date = Date()) {
+        UserDefaults.standard.set(date.timeIntervalSince1970, forKey: AppConstants.UserDefaultsKeys.lastFullRosterSyncAt)
+    }
 }
