@@ -24,6 +24,17 @@ struct EmployeeListView: View {
     @ViewBuilder
     private var employeeListContent: some View {
         List {
+            Section {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search name, code, department", text: $viewModel.searchText)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                }
+            }
+            .listRowBackground(Color(.secondarySystemGroupedBackground))
+
             syncSection
 
             if viewModel.employees.isEmpty {
@@ -68,7 +79,6 @@ struct EmployeeListView: View {
                 }
             }
         }
-        .searchable(text: $viewModel.searchText, prompt: "Search name, code, department")
         .alert("Delete employee?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 employeesPendingDeletion = []
@@ -288,9 +298,11 @@ struct EmployeeDetailView: View {
                 }
             }
 
-            if employee.hasIdDocumentPhoto, let idType = employee.idDocumentType {
+            if employee.hasIdDocumentPhoto || employee.idDocumentType != nil {
                 Section("Government ID") {
-                    LabeledContent("Type", value: idType.displayName)
+                    if let idType = employee.idDocumentType {
+                        LabeledContent("Type", value: idType.displayName)
+                    }
                     if !employee.idDocumentNumber.isEmpty {
                         LabeledContent("Number", value: employee.idDocumentNumber)
                     }
@@ -299,33 +311,31 @@ struct EmployeeDetailView: View {
                     }
                     if let data = IdDocumentPhotoStore.load(employeeId: employee.id),
                        let image = UIImage(data: data) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 200)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        EmployeePhotoPreview(image: image, title: "Government ID")
                             .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                    } else {
+                        Text("ID photo not stored on this device.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
 
             Section("Registered Faces") {
                 if enrollmentPhotos.isEmpty {
-                    Text("No registration photos on this device. Delete this employee and register again to capture new face photos.")
+                    Text("No registration photos on this device.")
                         .foregroundStyle(.secondary)
                         .font(.subheadline)
                 } else {
+                    Text("Tap a photo to view full size.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                         ForEach(enrollmentPhotos, id: \.pose) { item in
                             if let image = UIImage(data: item.data) {
                                 VStack(spacing: 6) {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(maxWidth: .infinity)
+                                    EmployeePhotoPreview(image: image, title: item.pose.displayName)
                                         .frame(height: 140)
-                                        .clipped()
-                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                     Label(item.pose.displayName, systemImage: item.pose.systemImage)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -381,6 +391,64 @@ struct EmployeeDetailView: View {
                     EmployeeEditView(employee: employee)
                 } label: {
                     Text("Edit")
+                }
+            }
+        }
+    }
+}
+
+private struct EmployeePhotoPreview: View {
+    let image: UIImage
+    let title: String
+    @State private var showFullScreen = false
+
+    var body: some View {
+        Button {
+            showFullScreen = true
+        } label: {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.black.opacity(0.45), in: Circle())
+                        .padding(8)
+                }
+        }
+        .buttonStyle(.plain)
+        .fullScreenCover(isPresented: $showFullScreen) {
+            EmployeePhotoFullScreenView(image: image, title: title)
+        }
+    }
+}
+
+private struct EmployeePhotoFullScreenView: View {
+    @Environment(\.dismiss) private var dismiss
+    let image: UIImage
+    let title: String
+
+    var body: some View {
+        NavigationStack {
+            ScrollView([.horizontal, .vertical]) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+            }
+            .background(Color.black)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
                 }
             }
         }

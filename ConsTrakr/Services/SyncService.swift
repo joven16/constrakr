@@ -125,6 +125,10 @@ final class SyncService {
         }
 
         guard try hasPendingPushWork(context: context, scope: scope) else {
+            if scope != .employees {
+                reportProgress("Checking IMS updates…")
+                try await reconcileRemoteAttendanceVoids(context: context)
+            }
             reportProgress("Verifying roster…")
             summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
             summary.employeesLocalTotal = try empRepo.count()
@@ -203,25 +207,25 @@ final class SyncService {
     /// Removes local punches voided on IMS so DTR and scanner stay aligned.
     private func reconcileRemoteAttendanceVoids(context: ModelContext) async throws {
         let attRepo = AttendanceRepository(context: context)
-        let since = SyncSettings.lastAttendanceVoidReconcileDate?.addingTimeInterval(-120)
-            ?? Calendar.current.date(byAdding: .day, value: -14, to: Date())
-        guard let since else { return }
+        // Use a wide lookback so voids are found even when IMS `updated_at` was not bumped on older builds.
+        guard let since = Calendar.current.date(byAdding: .day, value: -90, to: Date()) else { return }
 
         let remoteRows = try await api.getAttendance(updatedSince: since)
-        guard !remoteRows.isEmpty else {
+        let voidedRows = remoteRows.filter(\.isVoid)
+        guard !voidedRows.isEmpty else {
             SyncSettings.recordAttendanceVoidReconcile()
             return
         }
 
         var removed = 0
-        for dto in remoteRows where dto.isVoid {
-            let local: Attendance?
-            if let serverId = APIDecoding.normalizedServerId(dto.serverId) {
-                local = try attRepo.fetch(serverId: serverId)
-            } else {
-                local = try attRepo.fetch(localId: dto.localId)
-            }
-            guard let local else { continue }
+        for dto in voidedRows {
+            guard let local = try attRepo.fetchForVoidReconcile(
+                serverId: APIDecoding.normalizedServerId(dto.serverId),
+                localId: dto.localId,
+                employeeServerId: APIDecoding.normalizedServerId(dto.employeeServerId),
+                timestamp: dto.timestamp,
+                checkType: dto.checkType
+            ) else { continue }
             try attRepo.delete(local, persist: false)
             removed += 1
         }

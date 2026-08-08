@@ -96,6 +96,35 @@ final class AttendanceRepository {
         return try context.fetch(descriptor).first
     }
 
+    /// Resolves a local punch from IMS void payloads (server id, local id, or timestamp match).
+    func fetchForVoidReconcile(
+        serverId: String?,
+        localId: UUID,
+        employeeServerId: String?,
+        timestamp: Date,
+        checkType: String
+    ) throws -> Attendance? {
+        if let serverId, let match = try fetch(serverId: serverId) {
+            return match
+        }
+        if let match = try fetch(localId: localId) {
+            return match
+        }
+        guard let employeeServerId else { return nil }
+
+        let windowStart = timestamp.addingTimeInterval(-3)
+        let windowEnd = timestamp.addingTimeInterval(3)
+        let descriptor = FetchDescriptor<Attendance>(
+            predicate: #Predicate { record in
+                record.employeeServerId == employeeServerId
+                    && record.checkTypeRaw == checkType
+                    && record.timestamp >= windowStart
+                    && record.timestamp <= windowEnd
+            }
+        )
+        return try context.fetch(descriptor).first
+    }
+
     func delete(_ attendance: Attendance, persist: Bool = true) throws {
         AttendancePhotoStore.delete(attendanceId: attendance.id)
         context.delete(attendance)

@@ -693,13 +693,15 @@ struct AttendanceDTO: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let serverId = try container.decodeIfPresent(String.self, forKey: .serverId) {
-            self.serverId = serverId
-        } else {
-            self.serverId = try container.decodeIfPresent(String.self, forKey: .id)
-        }
+        serverId = APIDecoding.decodeFlexibleIdString(
+            from: container,
+            keys: [.serverId, .id]
+        )
         localId = try container.decode(UUID.self, forKey: .localId)
-        employeeServerId = try container.decodeIfPresent(String.self, forKey: .employeeServerId)
+        employeeServerId = APIDecoding.decodeFlexibleIdString(
+            from: container,
+            keys: [.employeeServerId]
+        )
         employeeLocalId = try container.decode(UUID.self, forKey: .employeeLocalId)
         checkType = try container.decode(String.self, forKey: .checkType)
         timestamp = try container.decode(Date.self, forKey: .timestamp)

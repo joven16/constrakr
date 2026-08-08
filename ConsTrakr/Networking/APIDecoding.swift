@@ -246,6 +246,24 @@ enum APIDecoding {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// IMS often returns numeric primary keys as JSON integers instead of strings.
+    static func decodeFlexibleIdString<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        keys: [K]
+    ) -> String? {
+        for key in keys {
+            if let value = try? container.decodeIfPresent(String.self, forKey: key) {
+                if let normalized = normalizedServerId(value) {
+                    return normalized
+                }
+            }
+            if let value = try? container.decodeIfPresent(Int.self, forKey: key) {
+                return String(value)
+            }
+        }
+        return nil
+    }
+
     /// Parses IMS/Django timestamps (`…Z`, `…+00:00`, fractional seconds).
     static func parseISO8601(_ value: String?) -> Date? {
         guard var string = value?.trimmingCharacters(in: .whitespacesAndNewlines), !string.isEmpty else {
