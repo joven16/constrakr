@@ -106,4 +106,10 @@ final class DTRViewModel {
             errorMessage = error.localizedDescription
         }
     }
+
+    /// Upload pending punches only — fast pull-to-sync on DTR.
+    func syncNow() async {
+        await syncQueue?.syncNow(mode: .quick, scope: .attendance)
+        refresh()
+    }
 }

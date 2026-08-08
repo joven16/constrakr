@@ -57,9 +57,17 @@ final class SyncService {
     // MARK: - Push pipeline (called by SyncQueue)
 
     /// Uploads pending local changes in dependency order.
-    func performPushSync(context: ModelContext, mode: SyncMode = .full) async throws -> PushSyncSummary {
+    func performPushSync(
+        context: ModelContext,
+        mode: SyncMode = .full,
+        scope: SyncScope = .all
+    ) async throws -> PushSyncSummary {
         guard NetworkMonitor.shared.isConnected else {
             throw NetworkError.offline
+        }
+
+        if scope == .attendance {
+            return try await performAttendanceOnlySync(context: context)
         }
 
         var summary = PushSyncSummary()
@@ -116,7 +124,7 @@ final class SyncService {
             lastChildAssetsReconcileAt = Date()
         }
 
-        guard try hasPendingPushWork(context: context) else {
+        guard try hasPendingPushWork(context: context, scope: scope) else {
             reportProgress("Verifying roster…")
             summary.employeesStillLocalOnly = try empRepo.fetchPendingSync().count
             summary.employeesLocalTotal = try empRepo.count()
@@ -142,8 +150,10 @@ final class SyncService {
         summary = try await uploadPendingEmbeddings(context: context, summary: summary)
         summary = try await uploadPendingEnrollmentPhotos(context: context, summary: summary)
         summary = try await uploadPendingIdDocuments(context: context, summary: summary)
-        reportProgress("Uploading attendance…")
-        try await uploadPendingAttendance(context: context)
+        if scope != .employees {
+            reportProgress("Uploading attendance…")
+            try await uploadPendingAttendance(context: context)
+        }
 
         if summary.employeesPosted > 0
             || summary.employeesLinked > 0
@@ -176,6 +186,14 @@ final class SyncService {
 
         reportProgress(nil)
         return summary
+    }
+
+    private func performAttendanceOnlySync(context: ModelContext) async throws -> PushSyncSummary {
+        await warmConnectionIfNeeded()
+        reportProgress("Uploading punches…")
+        try await uploadPendingAttendance(context: context)
+        reportProgress(nil)
+        return PushSyncSummary()
     }
 
     private func reportProgress(_ message: String?) {
@@ -360,7 +378,11 @@ final class SyncService {
         }
     }
 
-    private func hasPendingPushWork(context: ModelContext) throws -> Bool {
+    private func hasPendingPushWork(context: ModelContext, scope: SyncScope) throws -> Bool {
+        if scope == .attendance {
+            return try AttendanceRepository(context: context).pendingCount() > 0
+        }
+
         if PendingEmployeeDeletionStore.hasPending() {
             return true
         }
@@ -368,12 +390,19 @@ final class SyncService {
         let embeddings = FaceEmbeddingRepository(context: context)
         let photos = FaceEnrollmentPhotoRepository(context: context)
         let idDocuments = EmployeeIdDocumentRepository(context: context)
-        let attendance = AttendanceRepository(context: context)
-        return try employees.pendingCount() > 0
-            || embeddings.pendingCount() > 0
-            || photos.pendingCount() > 0
-            || idDocuments.pendingCount() > 0
-            || attendance.pendingCount() > 0
+        let employeePending = try employees.pendingCount()
+        let embeddingPending = try embeddings.pendingCount()
+        let photoPending = try photos.pendingCount()
+        let idDocPending = try idDocuments.pendingCount()
+        let hasEmployeeWork = employeePending > 0
+            || embeddingPending > 0
+            || photoPending > 0
+            || idDocPending > 0
+        if scope == .employees {
+            return hasEmployeeWork
+        }
+        let attendancePending = try AttendanceRepository(context: context).pendingCount()
+        return hasEmployeeWork || attendancePending > 0
     }
 
     /// Soft-delete employees on IMS that were removed on this device.

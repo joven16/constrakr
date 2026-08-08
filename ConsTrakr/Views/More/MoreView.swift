@@ -27,12 +27,6 @@ struct MoreView: View {
                     Label("Settings", systemImage: "gearshape.fill")
                 }
 
-                NavigationLink {
-                    AttendanceHistoryView(embedsNavigation: false)
-                } label: {
-                    Label("Sync History", systemImage: "clock.arrow.circlepath")
-                }
-
                 Section {
                     Button(role: .destructive) {
                         confirmClearDTR = true
@@ -41,17 +35,6 @@ struct MoreView: View {
                     }
                 } footer: {
                     Text("Testing only — deletes all Time In and Time Out records on this device.")
-                }
-
-                Section("Credits") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(AppConstants.appName)
-                            .font(.headline)
-                        Text("by Joven Lusterio")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
                 }
             }
             .navigationTitle("More")

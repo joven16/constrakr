@@ -74,7 +74,7 @@ struct DTRView: View {
                 viewModel.refresh()
             }
             .refreshable {
-                viewModel.refresh()
+                await viewModel.syncNow()
             }
         }
     }
@@ -94,7 +94,7 @@ struct DTRView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Text("Upload pending data from the Employees tab (pull down to sync).")
+                Text("Pull down to upload pending punches.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

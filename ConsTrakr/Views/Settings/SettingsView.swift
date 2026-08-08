@@ -23,271 +23,11 @@ struct SettingsView: View {
 
     private var settingsForm: some View {
         Form {
-            Section {
-                LabeledContent("Status") {
-                    Text(viewModel.isOnline ? "Online" : "Offline")
-                        .foregroundStyle(viewModel.isOnline ? .green : .secondary)
-                }
-                LabeledContent("Pending Uploads", value: "\(viewModel.pendingCount)")
-                if let last = viewModel.lastSyncDate {
-                    LabeledContent("Last Sync", value: last.attendanceDisplay)
-                }
-                if viewModel.isSyncing {
-                    LabeledContent("Sync") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ProgressView()
-                            if let progress = viewModel.syncProgressMessage {
-                                Text(progress)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                Toggle("Auto Sync", isOn: $viewModel.autoSyncEnabled)
-                Toggle("Photos & ID on Wi‑Fi only", isOn: $viewModel.uploadLargeFilesOnWiFiOnly)
-                if viewModel.isAdminAuthenticated {
-                    Button("Full Sync Now") {
-                        Task { await viewModel.syncNowFull() }
-                    }
-                    .disabled(viewModel.isSyncing || !viewModel.isOnline)
-                }
-                if viewModel.autoSyncEnabled {
-                    Stepper(value: $viewModel.syncIntervalMinutes, in: SyncSettings.minIntervalMinutes...SyncSettings.maxIntervalMinutes) {
-                        Text("Every \(viewModel.syncIntervalMinutes) min")
-                    }
-                }
-            } header: {
-                Text("Sync")
-            } footer: {
-                if let status = viewModel.statusMessage {
-                    Text(status)
-                } else if viewModel.autoSyncEnabled {
-                    Text("Pull down on Employees for a quick sync. Auto sync and Full Sync Now run a complete pass (roster verify + photo reconcile). Sign in to IMS first.")
-                } else {
-                    Text("Auto sync is off. Pull down on Employees for quick sync, or use Full Sync Now here. Sign in to IMS first.")
-                }
-            }
-
-            Section {
-                if viewModel.isAdminAuthenticated {
-                    LabeledContent("Admin", value: AdminSession.shared.username ?? "Signed in")
-                    Button("Restore from Cloud Backup") {
-                        Task { await viewModel.restoreFromServer() }
-                    }
-                    .disabled(viewModel.isSyncing || !viewModel.isOnline)
-                    Button {
-                        showRestoreTestConfirmation = true
-                    } label: {
-                        if viewModel.isTestingRestore {
-                            HStack {
-                                ProgressView()
-                                Text("Testing restore…")
-                            }
-                        } else {
-                            Label("Test Restore (Clear Local & Download)", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                    }
-                    .disabled(viewModel.isSyncing || viewModel.isTestingRestore || !viewModel.isOnline)
-                    Button("Sign Out Admin", role: .destructive) {
-                        viewModel.signOutAdmin()
-                    }
-                } else {
-                    TextField("Admin username", text: $viewModel.adminUsername)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    SecureField("Password", text: $viewModel.adminPassword)
-                    Button("Sign In for Sync & Restore") {
-                        Task { await viewModel.signInAdmin() }
-                    }
-                    .disabled(viewModel.adminUsername.isEmpty || viewModel.adminPassword.isEmpty)
-                }
-            } header: {
-                Text("IMS Sync & Restore")
-            } footer: {
-                Text("Sign in with sync_admin. Restore adds cloud data to this device. Test Restore wipes local employees, face data, and DTR first, then downloads from IMS — simulates a replacement phone. IMS cloud backup is not deleted.")
-            }
-
-            Section {
-                TextField("Base URL (HTTPS)", text: $viewModel.apiBaseURL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                TextField("Admin username", text: $viewModel.adminUsername)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                SecureField("Password (optional if signed in)", text: $viewModel.adminPassword)
-                Button {
-                    Task { await viewModel.testAPIConnection() }
-                } label: {
-                    if viewModel.isTestingAPI {
-                        ProgressView()
-                    } else {
-                        Label("Test API Connection", systemImage: "network")
-                    }
-                }
-                .disabled(viewModel.isTestingAPI)
-            } header: {
-                Text("IMS API")
-            } footer: {
-                if let apiTestMessage = viewModel.apiTestMessage {
-                    Text(apiTestMessage)
-                        .foregroundStyle(
-                            viewModel.apiTestResult?.healthOK == true
-                                && viewModel.apiTestResult?.loginOK == true
-                                ? Color.green : Color.orange
-                        )
-                } else {
-                    Text("If you already signed in above, leave password blank — Test API checks your saved session. To test a new password, enter it here.")
-                }
-            }
-
-            Section {
-                LabeledContent("Engine", value: MatchThresholdSettings.engineName)
-                LabeledContent("Anti-Spoof") {
-                    Text(CoreMLAntiSpoof.shared.isReady ? "MiniFASNetV2 (Core ML)" : "Heuristics only")
-                        .foregroundStyle(CoreMLAntiSpoof.shared.isReady ? .green : .orange)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Match Threshold: \(viewModel.matchThreshold, format: .number.precision(.fractionLength(2)))")
-                    Slider(
-                        value: $viewModel.matchThreshold,
-                        in: viewModel.matchThresholdRange,
-                        step: 0.01
-                    )
-                }
-                Toggle("Keep debug camera frames", isOn: $viewModel.uploadRawFramesEnabled)
-            } header: {
-                Text("Face Recognition")
-            } footer: {
-                Text("Default AdaFace threshold is 0.45. Same person is often ~0.42–0.80. Lower the slider if valid faces show “Not recognized”; raise it to reduce lookalike matches. Re-register after switching engines — embeddings are incompatible.")
-            }
-
-            Section {
-                ForEach(FaceScanSettings.Level.allCases) { level in
-                    Button {
-                        Task { await viewModel.selectFaceScanLevel(level) }
-                    } label: {
-                        HStack(alignment: .top, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(level.title)
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                Text(level.subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.leading)
-                            }
-                            Spacer(minLength: 8)
-                            if viewModel.faceScanLevel == level {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(viewModel.isSavingFaceScanSettings)
-                }
-
-                if FaceScanSettings.isCustomConfiguration {
-                    LabeledContent("Custom") {
-                        Text("Manual angles below")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Toggle(FaceScanSettings.settingsLabel(for: .closeUp), isOn: $viewModel.faceScanCenterEnabled)
-                    .disabled(viewModel.isSavingFaceScanSettings)
-                Toggle(FaceScanSettings.settingsLabel(for: .lookLeft), isOn: $viewModel.faceScanLeftEnabled)
-                    .disabled(viewModel.isSavingFaceScanSettings)
-                Toggle(FaceScanSettings.settingsLabel(for: .lookRight), isOn: $viewModel.faceScanRightEnabled)
-                    .disabled(viewModel.isSavingFaceScanSettings)
-                Toggle(FaceScanSettings.settingsLabel(for: .lookUp), isOn: $viewModel.faceScanUpEnabled)
-                    .disabled(viewModel.isSavingFaceScanSettings)
-                Toggle(FaceScanSettings.settingsLabel(for: .lookDown), isOn: $viewModel.faceScanDownEnabled)
-                    .disabled(viewModel.isSavingFaceScanSettings)
-
-                if viewModel.isSavingFaceScanSettings {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("Saving scanner settings…")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } header: {
-                Text("Face Scanner")
-            } footer: {
-                if let note = viewModel.faceScanSettingsMessage {
-                    Text(note)
-                        .foregroundStyle(.orange)
-                } else {
-                    Text("Controls the live checks during Time In / Time Out. Blink always runs first, then any enabled steps above, then 3D depth if available. With all steps off, scan is blink only (+ 3D on TrueDepth). Registration always captures all five angles.")
-                }
-            }
-
-            Section {
-                Toggle("Require supervisor PIN", isOn: $viewModel.supervisorPINEnabled)
-                SecureField("New PIN (4–12 digits)", text: $viewModel.newSupervisorPIN)
-                    .keyboardType(.numberPad)
-                SecureField("Confirm PIN", text: $viewModel.confirmSupervisorPIN)
-                    .keyboardType(.numberPad)
-                Button("Save Supervisor PIN") {
-                    viewModel.saveSupervisorPIN()
-                }
-                .disabled(viewModel.newSupervisorPIN.count < 4)
-                if SupervisorPINSettings.hasPIN {
-                    Button("Clear PIN", role: .destructive) {
-                        viewModel.clearSupervisorPIN()
-                    }
-                }
-            } header: {
-                Text("Buddy-punch control")
-            } footer: {
-                Text("When enabled, Time In / Time Out asks for a supervisor PIN before the camera scan starts.")
-            }
-
-            Section {
-                Toggle("Require on-site GPS", isOn: $viewModel.siteGeofenceEnabled)
-                if viewModel.configuredJobSites.isEmpty {
-                    NavigationLink {
-                        JobSitesListView()
-                    } label: {
-                        Label("Add Job Sites", systemImage: "plus.circle")
-                    }
-                } else {
-                    Picker("Default site", selection: Binding(
-                        get: { viewModel.effectiveDefaultSiteId },
-                        set: { viewModel.setDefaultJobSiteId($0) }
-                    )) {
-                        ForEach(viewModel.configuredJobSites) { site in
-                            Text(site.displayTitle).tag(Optional(site.id))
-                        }
-                    }
-                    NavigationLink {
-                        JobSitesListView()
-                    } label: {
-                        Label("Manage Job Sites", systemImage: "mappin.and.ellipse")
-                    }
-                    if let site = JobSiteStore.defaultSite {
-                        LabeledContent("Radius", value: "\(Int(site.radiusMeters.rounded())) m")
-                        LabeledContent("Coordinates", value: String(format: "%.4f, %.4f", site.latitude, site.longitude))
-                    }
-                }
-
-            } header: {
-                Text("Job site geofence")
-            } footer: {
-                Text("The default site gates the scanner tab. Each employee’s assigned site is checked again when they punch Time In / Out.")
-            }
-
-            Section("About") {
-                LabeledContent("App", value: AppConstants.appName)
-                LabeledContent("Mode", value: "Offline-first")
-                LabeledContent("Vision", value: "Face landmarks + head pose")
-                LabeledContent("Face Model", value: MatchThresholdSettings.engineName)
-            }
+            statusSection
+            syncSection
+            imsAccountSection
+            configurationSection
+            aboutSection
         }
         .navigationTitle("Settings")
         .onAppear {
@@ -315,26 +55,176 @@ struct SettingsView: View {
         ) { _ in
             viewModel.refresh()
         }
-        .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
-            viewModel.reloadJobSiteSettings()
-        }
-        .alert("API Connection Test", isPresented: $viewModel.showAPITestAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(viewModel.apiTestMessage ?? "")
-        }
         .alert("Test cloud restore?", isPresented: $showRestoreTestConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Clear Local & Restore", role: .destructive) {
                 Task { await viewModel.testRestoreFromCloud() }
             }
         } message: {
-            Text("This removes all employees, face enrollment, and DTR records from this device only, then downloads the full backup from IMS (last 2 years of attendance, with photos). Your IMS data stays safe.")
+            Text("This removes all employees, face enrollment, and DTR records from this device only, then downloads the full backup from IMS. Your IMS data stays safe.")
         }
         .alert("Restore Test Result", isPresented: $viewModel.showRestoreTestAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(viewModel.restoreTestMessage ?? "")
+        }
+    }
+
+    // MARK: - Sections
+
+    private var statusSection: some View {
+        Section {
+            LabeledContent("Network") {
+                Text(viewModel.isOnline ? "Online" : "Offline")
+                    .foregroundStyle(viewModel.isOnline ? .green : .secondary)
+            }
+            if viewModel.pendingCount > 0 {
+                LabeledContent("Pending uploads", value: "\(viewModel.pendingCount)")
+            }
+            if let last = viewModel.lastSyncDate {
+                LabeledContent("Last sync", value: last.attendanceDisplay)
+            }
+            if viewModel.isSyncing, let progress = viewModel.syncProgressMessage {
+                LabeledContent("Progress") {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(progress)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Status")
+        }
+    }
+
+    private var syncSection: some View {
+        Section {
+            Toggle("Auto sync", isOn: $viewModel.autoSyncEnabled)
+            if viewModel.autoSyncEnabled {
+                Stepper(value: $viewModel.syncIntervalMinutes, in: SyncSettings.minIntervalMinutes...SyncSettings.maxIntervalMinutes) {
+                    Text("Every \(viewModel.syncIntervalMinutes) min")
+                }
+            }
+            Toggle("Photos & ID on Wi‑Fi only", isOn: $viewModel.uploadLargeFilesOnWiFiOnly)
+            if viewModel.isAdminAuthenticated {
+                Button("Full sync now") {
+                    Task { await viewModel.syncNowFull() }
+                }
+                .disabled(viewModel.isSyncing || !viewModel.isOnline)
+            }
+        } header: {
+            Text("Sync")
+        } footer: {
+            if let status = viewModel.statusMessage {
+                Text(status)
+            } else {
+                Text("Pull down on Employees to sync roster and face data. Pull down on DTR to upload punches. Auto sync and Full sync run everything. Sign in below first.")
+            }
+        }
+    }
+
+    private var imsAccountSection: some View {
+        Section {
+            if viewModel.isAdminAuthenticated {
+                LabeledContent("Signed in as", value: AdminSession.shared.username ?? "Admin")
+                Button("Sign out", role: .destructive) {
+                    viewModel.signOutAdmin()
+                }
+            } else {
+                TextField("Admin username", text: $viewModel.adminUsername)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                SecureField("Password", text: $viewModel.adminPassword)
+                Button("Sign in") {
+                    Task { await viewModel.signInAdmin() }
+                }
+                .disabled(viewModel.adminUsername.isEmpty || viewModel.adminPassword.isEmpty)
+            }
+        } header: {
+            Text("IMS Account")
+        } footer: {
+            Text("Use your sync_admin credentials. Required for sync, restore, and cloud backup.")
+        }
+    }
+
+    private var configurationSection: some View {
+        Section {
+            NavigationLink {
+                SettingsScannerView(viewModel: viewModel)
+            } label: {
+                settingsRow(
+                    title: "Scanner & face match",
+                    subtitle: "Threshold and liveness steps",
+                    systemImage: "faceid"
+                )
+            }
+
+            NavigationLink {
+                SettingsJobSiteView(viewModel: viewModel)
+            } label: {
+                settingsRow(
+                    title: "Job sites & GPS",
+                    subtitle: viewModel.siteGeofenceEnabled ? "Geofence on" : "Geofence off",
+                    systemImage: "mappin.and.ellipse"
+                )
+            }
+
+            NavigationLink {
+                SettingsSupervisorPINView(viewModel: viewModel)
+            } label: {
+                settingsRow(
+                    title: "Supervisor PIN",
+                    subtitle: SupervisorPINSettings.isRequired ? "Required before punch" : "Off",
+                    systemImage: "lock.shield"
+                )
+            }
+
+            NavigationLink {
+                SettingsAdvancedView(
+                    viewModel: viewModel,
+                    showRestoreTestConfirmation: $showRestoreTestConfirmation
+                )
+            } label: {
+                settingsRow(
+                    title: "Advanced",
+                    subtitle: "Server URL, restore, diagnostics",
+                    systemImage: "wrench.and.screwdriver"
+                )
+            }
+        } header: {
+            Text("Configuration")
+        }
+    }
+
+    private var aboutSection: some View {
+        Section("About") {
+            LabeledContent("App", value: AppConstants.appName)
+            LabeledContent("Face model", value: MatchThresholdSettings.engineName)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Credits")
+                    .font(.subheadline.weight(.semibold))
+                Text("by Joven Lusterio")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func settingsRow(title: String, subtitle: String, systemImage: String) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(.teal)
         }
     }
 }

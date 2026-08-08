@@ -107,14 +107,14 @@ final class SyncQueue {
             return
         }
         clearStaleOfflineError()
-        await syncNow(mode: .full)
+        await syncNow(mode: .full, scope: .all)
     }
 
-    func syncNow(mode: SyncMode = .full) async {
+    func syncNow(mode: SyncMode = .full, scope: SyncScope = .all) async {
         guard !isSyncing, let context else { return }
 
         lastSyncAttemptDate = Date()
-        syncProgressMessage = mode == .quick ? "Quick sync…" : "Syncing…"
+        syncProgressMessage = syncProgressLabel(mode: mode, scope: scope)
         await AdminSession.shared.restorePersistedSession()
 
         if await APIService.shared.isUsingPlaceholderHost() {
@@ -146,7 +146,7 @@ final class SyncQueue {
         }
 
         do {
-            let summary = try await syncService.performPushSync(context: context, mode: mode)
+            let summary = try await syncService.performPushSync(context: context, mode: mode, scope: scope)
             lastPushSummary = summary
             lastEmployeeSyncReport = summary.employeeSyncReport
             lastSyncDate = Date()
@@ -215,6 +215,17 @@ final class SyncQueue {
 
     func updateSyncProgress(_ message: String?) {
         syncProgressMessage = message
+    }
+
+    private func syncProgressLabel(mode: SyncMode, scope: SyncScope) -> String {
+        switch scope {
+        case .attendance:
+            return "Uploading punches…"
+        case .employees:
+            return mode == .quick ? "Syncing employees…" : "Syncing…"
+        case .all:
+            return mode == .quick ? "Quick sync…" : "Syncing…"
+        }
     }
 
     /// Compare local roster vs IMS without uploading.
