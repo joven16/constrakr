@@ -57,6 +57,13 @@ struct SettingsView: View {
         ) { _ in
             viewModel.refresh()
         }
+        .refreshable {
+            if viewModel.isAdminAuthenticated {
+                await viewModel.syncNowFull()
+            } else {
+                viewModel.refresh()
+            }
+        }
         .alert("Test cloud restore?", isPresented: $showRestoreTestConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Clear Local & Restore", role: .destructive) {
@@ -138,7 +145,7 @@ struct SettingsView: View {
             if let status = viewModel.statusMessage {
                 Text(status)
             } else {
-                Text("Pull down on Employees to sync roster and face data. Pull down on DTR to upload punches. Auto sync and Full sync run everything. Sign in below first.")
+                Text("Pull down here or on Employees / DTR to sync. Auto sync and Full sync run everything. Sign in below first.")
             }
         }
     }

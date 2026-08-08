@@ -114,8 +114,6 @@ struct SettingsAdvancedView: View {
                 }
             }
 
-            LabeledContent("iPhone/iPad name", value: DeviceStore.systemDeviceName)
-
             VStack(alignment: .leading, spacing: 6) {
                 Text("Device ID")
                     .font(.subheadline)
@@ -130,18 +128,11 @@ struct SettingsAdvancedView: View {
             } label: {
                 Label(didCopyDeviceID ? "Copied" : "Copy device ID", systemImage: didCopyDeviceID ? "checkmark" : "doc.on.doc")
             }
-
-            if DeviceStore.usesCustomName {
-                Button("Use iPhone/iPad name") {
-                    deviceNameText = DeviceStore.systemDeviceName
-                    Task { await viewModel.resetDeviceNameToSystem() }
-                }
-            }
         } header: {
             Text("This device")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Text("This name appears on the web Devices list. Use a custom label like Gate 2 kiosk, or keep your iPhone/iPad name.")
+                Text("Required. This name appears on the web Devices list — e.g. Gate 2 kiosk or Site A iPad.")
                 if let status = viewModel.deviceNameStatusMessage {
                     Text(status)
                         .foregroundStyle(.secondary)
@@ -150,7 +141,7 @@ struct SettingsAdvancedView: View {
         }
         .onDisappear {
             let trimmed = deviceNameText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed != DeviceStore.syncName else { return }
+            guard !trimmed.isEmpty, trimmed != DeviceStore.syncName else { return }
             Task { await viewModel.saveDeviceName(trimmed) }
         }
     }

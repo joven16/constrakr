@@ -294,14 +294,19 @@ final class SettingsViewModel {
     }
 
     func reloadDeviceNameDraft() -> String {
-        DeviceStore.syncName
+        DeviceStore.ensureDeviceNameSeeded()
+        return DeviceStore.syncName
     }
 
     func saveDeviceName(_ name: String) async {
         isSavingDeviceName = true
         defer { isSavingDeviceName = false }
-        DeviceStore.setSyncName(name)
         deviceNameStatusMessage = nil
+
+        guard DeviceStore.setSyncName(name) else {
+            deviceNameStatusMessage = "Device name is required."
+            return
+        }
 
         guard AdminSession.shared.isAuthenticated, NetworkMonitor.shared.isConnected else {
             deviceNameStatusMessage = "Saved on this device. Will appear on the web after you sign in and sync."
@@ -319,11 +324,6 @@ final class SettingsViewModel {
         } catch {
             deviceNameStatusMessage = "Saved on this device. Will sync on the next successful sync."
         }
-    }
-
-    func resetDeviceNameToSystem() async {
-        DeviceStore.resetToSystemDeviceName()
-        await saveDeviceName(DeviceStore.syncName)
     }
 
     func signInAdmin() async {

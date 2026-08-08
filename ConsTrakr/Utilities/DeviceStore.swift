@@ -31,47 +31,40 @@ enum DeviceStore {
         UserDefaults.standard.bool(forKey: AppConstants.UserDefaultsKeys.deviceAdminCodeRequired)
     }
 
-    /// Name from Settings → General → About on this iPhone/iPad.
-    static var systemDeviceName: String {
-        UIDevice.current.name
-    }
-
-    /// Optional label set in ConsTrakr — empty when using the system device name.
+    /// Stored device label — required before sync pushes to the web Devices list.
     static var customName: String {
         UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.deviceCustomName) ?? ""
     }
 
-    static var usesCustomName: Bool {
+    static var hasDeviceName: Bool {
         !customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Name pushed to the web Devices list on sync.
     static var syncName: String {
-        let custom = customName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !custom.isEmpty {
-            return String(custom.prefix(200))
-        }
-        return systemDeviceName
+        ensureDeviceNameSeeded()
+        return customName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     }
 
-    static func setSyncName(_ name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let system = systemDeviceName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed == system {
-            UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.deviceCustomName)
-        } else {
-            UserDefaults.standard.set(String(trimmed.prefix(200)), forKey: AppConstants.UserDefaultsKeys.deviceCustomName)
-        }
-        postChange()
+    /// Seeds the field once from the iOS device name when unset — user must keep or edit it in Settings.
+    static func ensureDeviceNameSeeded() {
+        guard !hasDeviceName else { return }
+        let system = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !system.isEmpty else { return }
+        UserDefaults.standard.set(String(system.prefix(200)), forKey: AppConstants.UserDefaultsKeys.deviceCustomName)
     }
 
-    static func resetToSystemDeviceName() {
-        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.deviceCustomName)
+    @discardableResult
+    static func setSyncName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        UserDefaults.standard.set(String(trimmed.prefix(200)), forKey: AppConstants.UserDefaultsKeys.deviceCustomName)
         postChange()
+        return true
     }
 
     static func update(from device: DeviceDTO?) {
