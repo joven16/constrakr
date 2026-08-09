@@ -245,7 +245,7 @@ struct EmployeeListView: View {
             return "Sign in under Settings → Sync Account"
         }
         if let error = syncQueue.lastError, !error.isEmpty,
-           !(NetworkMonitor.shared.isConnected && NetworkError.isQueueMessage(error)) {
+           !(NetworkMonitor.shared.isConnected && NetworkError.isOfflineMessage(error)) {
             return error
         }
         if let note = viewModel.cloudReport?.statusNote {
