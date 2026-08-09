@@ -22,7 +22,10 @@ final class AttendanceService {
         confidence: Double,
         notes: String? = nil,
         punchPhotoJPEG: Data? = nil,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        punchSiteId: UUID? = nil,
+        punchSiteName: String? = nil,
+        punchSiteLocation: String? = nil
     ) throws -> Attendance {
         if try repository.hasRecordedToday(employeeId: employeeId, checkType: checkType) {
             throw ServiceError.alreadyRecordedToday(checkType)
@@ -39,7 +42,10 @@ final class AttendanceService {
             timestamp: timestamp,
             syncStatus: .pending,
             confidenceScore: confidence,
-            notes: notes
+            notes: notes,
+            punchSiteId: punchSiteId,
+            punchSiteName: punchSiteName,
+            punchSiteLocation: punchSiteLocation
         )
         try repository.save(attendance)
         if let punchPhotoJPEG {

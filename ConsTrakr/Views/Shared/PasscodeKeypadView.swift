@@ -21,22 +21,22 @@ struct PasscodeKeypadView: View {
     @State private var isVerifying = false
     @State private var shakeOffset: CGFloat = 0
 
-    private let keypadColumns = Array(repeating: GridItem(.flexible(), spacing: 18), count: 3)
+    private let keypadColumns = Array(repeating: GridItem(.flexible(), spacing: 22), count: 3)
 
     var body: some View {
         ZStack {
-            Color(.systemGroupedBackground)
+            Color(.systemBackground)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 topBar
 
-                Spacer(minLength: 24)
+                Spacer(minLength: 28)
 
                 header
 
                 passcodeDots
-                    .padding(.top, 28)
+                    .padding(.top, 32)
                     .offset(x: shakeOffset)
 
                 Group {
@@ -50,21 +50,21 @@ struct PasscodeKeypadView: View {
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-                .padding(.top, 8)
+                .padding(.top, 10)
                 .frame(minHeight: 22)
 
-                Spacer(minLength: 24)
+                Spacer(minLength: 28)
 
                 keypad
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 16)
 
                 if isVerifying {
                     ProgressView()
-                        .padding(.bottom, 28)
+                        .padding(.bottom, 32)
                 } else {
                     Color.clear
-                        .frame(height: 28)
+                        .frame(height: 32)
                 }
             }
         }
@@ -85,11 +85,7 @@ struct PasscodeKeypadView: View {
     }
 
     private var header: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "lock.fill")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-
+        VStack(spacing: 12) {
             Text(title)
                 .font(.title3.weight(.semibold))
                 .multilineTextAlignment(.center)
@@ -98,12 +94,12 @@ struct PasscodeKeypadView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 36)
+                .padding(.horizontal, 32)
         }
     }
 
     private var passcodeDots: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 16) {
             ForEach(0..<maxDigits, id: \.self) { index in
                 Circle()
                     .fill(index < digits.count ? Color.primary : Color.clear)
@@ -111,7 +107,7 @@ struct PasscodeKeypadView: View {
                         Circle()
                             .strokeBorder(Color.secondary.opacity(index < digits.count ? 0 : 0.35), lineWidth: 1.5)
                     }
-                    .frame(width: 13, height: 13)
+                    .frame(width: 14, height: 14)
             }
         }
         .animation(.easeOut(duration: 0.12), value: digits.count)
@@ -119,7 +115,7 @@ struct PasscodeKeypadView: View {
     }
 
     private var keypad: some View {
-        LazyVGrid(columns: keypadColumns, spacing: 18) {
+        LazyVGrid(columns: keypadColumns, spacing: 16) {
             ForEach(1...9, id: \.self) { digit in
                 keypadDigit("\(digit)") {
                     appendDigit("\(digit)")
@@ -127,7 +123,7 @@ struct PasscodeKeypadView: View {
             }
 
             Color.clear
-                .frame(height: 76)
+                .frame(height: 80)
 
             keypadDigit("0") {
                 appendDigit("0")
@@ -140,16 +136,16 @@ struct PasscodeKeypadView: View {
         }
     }
 
-
     private func keypadDigit(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 32, weight: .regular))
+                .font(.system(size: 34, weight: .regular))
+                .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity)
-                .frame(height: 76)
+                .frame(height: 80)
                 .background {
                     Circle()
-                        .fill(Color(.systemGray5))
+                        .fill(Color.primary.opacity(0.07))
                 }
         }
         .buttonStyle(.plain)
@@ -161,10 +157,10 @@ struct PasscodeKeypadView: View {
             Image(systemName: systemName)
                 .font(.title2.weight(.regular))
                 .frame(maxWidth: .infinity)
-                .frame(height: 76)
+                .frame(height: 80)
                 .background {
                     Circle()
-                        .fill(Color(.systemGray5))
+                        .fill(Color.primary.opacity(0.07))
                 }
         }
         .buttonStyle(.plain)

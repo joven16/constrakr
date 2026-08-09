@@ -132,8 +132,8 @@ struct JobSiteEditorView: View {
         }
         .fullScreenCover(isPresented: $showAdminCodePrompt) {
             AdminCodePromptSheet(
-                title: "Set default site",
-                message: "Enter the admin code to make this the default job site on this device.",
+                title: "Save job site",
+                message: "Enter the admin code to save job site changes on this device.",
                 onConfirm: { code in
                     try await AdminCodeService.verify(passcode: code)
                     if let pendingSite {
@@ -216,21 +216,15 @@ struct JobSiteEditorView: View {
             radiusMeters: radiusMeters
         )
         let setDefault = isDefaultSite || !isEditing || JobSiteStore.defaultSiteId == nil
-        let defaultIsChanging = setDefault && JobSiteStore.defaultSiteId != site.id
 
-        if defaultIsChanging {
-            do {
-                try AdminCodeService.ensureChangeAllowed()
-                pendingSite = site
-                pendingSetDefault = setDefault
-                showAdminCodePrompt = true
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            return
+        pendingSite = site
+        pendingSetDefault = setDefault
+        do {
+            try AdminCodeService.ensureChangeAllowed()
+            showAdminCodePrompt = true
+        } catch {
+            errorMessage = error.localizedDescription
         }
-
-        commitSave(site: site, setDefault: setDefault)
     }
 
     private func commitSave(site: JobSite, setDefault: Bool) {

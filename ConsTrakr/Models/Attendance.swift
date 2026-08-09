@@ -22,6 +22,10 @@ final class Attendance {
     var syncStatusRaw: String
     var confidenceScore: Double
     var notes: String?
+    /// Job site snapshot at punch time (assigned site or device default).
+    var punchSiteId: UUID?
+    var punchSiteName: String?
+    var punchSiteLocation: String?
 
     init(
         id: UUID = UUID(),
@@ -32,7 +36,10 @@ final class Attendance {
         timestamp: Date = Date(),
         syncStatus: SyncStatus = .pending,
         confidenceScore: Double = 0,
-        notes: String? = nil
+        notes: String? = nil,
+        punchSiteId: UUID? = nil,
+        punchSiteName: String? = nil,
+        punchSiteLocation: String? = nil
     ) {
         self.id = id
         self.serverId = serverId
@@ -43,6 +50,9 @@ final class Attendance {
         self.syncStatusRaw = syncStatus.rawValue
         self.confidenceScore = confidenceScore
         self.notes = notes
+        self.punchSiteId = punchSiteId
+        self.punchSiteName = punchSiteName
+        self.punchSiteLocation = punchSiteLocation
     }
 
     var checkType: CheckType {

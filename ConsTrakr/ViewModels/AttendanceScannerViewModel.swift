@@ -941,13 +941,18 @@ final class AttendanceScannerViewModel {
             }
 
             let punchTime = ClockIntegrityGuard.shared.preferredPunchTimestamp()
+            let employee = try employeeService?.employee(id: match.employeeId)
+            let punchSite = employee.flatMap { JobSiteStore.punchSiteSnapshot(for: $0) }
             let attendance = try attendanceService.record(
                 employeeId: match.employeeId,
                 checkType: checkType,
                 confidence: Double(match.similarity),
                 notes: "Matched pose: \(match.matchedPose.rawValue)",
                 punchPhotoJPEG: pendingPunchJPEG,
-                timestamp: punchTime
+                timestamp: punchTime,
+                punchSiteId: punchSite?.id,
+                punchSiteName: punchSite?.name,
+                punchSiteLocation: punchSite?.location
             )
             ClockIntegrityGuard.shared.recordSuccessfulPunch()
             pendingPunchJPEG = nil

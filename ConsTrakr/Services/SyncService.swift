@@ -1080,7 +1080,10 @@ final class SyncService {
                 timestamp: record.timestamp,
                 confidenceScore: record.confidenceScore,
                 notes: record.notes,
-                punchPhotoBase64: punchJPEG?.base64EncodedString()
+                punchPhotoBase64: punchJPEG?.base64EncodedString(),
+                punchSiteId: record.punchSiteId,
+                punchSiteName: record.punchSiteName,
+                punchSiteLocation: record.punchSiteLocation
             )
             do {
                 let response = try await self.api.postAttendance(dto)

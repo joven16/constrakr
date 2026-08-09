@@ -125,6 +125,22 @@ enum JobSiteStore {
         return "Assigned site"
     }
 
+    /// Site label stored on a punch — assigned employee site, else device default.
+    static func punchSiteSnapshot(for employee: Employee) -> (id: UUID, name: String, location: String)? {
+        if let assignedId = employee.assignedSiteId {
+            let catalog = syncFields(for: assignedId)
+            let name = employee.assignedSiteName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let location = employee.assignedSiteLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedName = name.isEmpty ? (catalog.name ?? "") : name
+            let resolvedLocation = location.isEmpty ? (catalog.location ?? "") : location
+            return (assignedId, resolvedName, resolvedLocation)
+        }
+        if let site = defaultSite {
+            return (site.id, site.displayTitle, site.locationLabel)
+        }
+        return nil
+    }
+
     static func applyAssignmentSnapshot(
         to employee: Employee,
         siteId: UUID?,

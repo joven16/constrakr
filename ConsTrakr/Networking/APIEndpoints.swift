@@ -713,6 +713,9 @@ struct AttendanceDTO: Codable {
     let punchPhotoBase64: String?
     let isVoid: Bool
     let updatedAt: Date?
+    let punchSiteId: UUID?
+    let punchSiteName: String?
+    let punchSiteLocation: String?
 
     enum CodingKeys: String, CodingKey {
         case serverId = "server_id"
@@ -727,6 +730,9 @@ struct AttendanceDTO: Codable {
         case punchPhotoBase64 = "punch_photo_base64"
         case isVoid = "is_void"
         case updatedAt = "updated_at"
+        case punchSiteId = "punch_site_id"
+        case punchSiteName = "punch_site_name"
+        case punchSiteLocation = "punch_site_location"
     }
 
     init(
@@ -740,7 +746,10 @@ struct AttendanceDTO: Codable {
         notes: String?,
         punchPhotoBase64: String? = nil,
         isVoid: Bool = false,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        punchSiteId: UUID? = nil,
+        punchSiteName: String? = nil,
+        punchSiteLocation: String? = nil
     ) {
         self.serverId = serverId
         self.localId = localId
@@ -753,6 +762,9 @@ struct AttendanceDTO: Codable {
         self.punchPhotoBase64 = punchPhotoBase64
         self.isVoid = isVoid
         self.updatedAt = updatedAt
+        self.punchSiteId = punchSiteId
+        self.punchSiteName = punchSiteName
+        self.punchSiteLocation = punchSiteLocation
     }
 
     init(from decoder: Decoder) throws {
@@ -774,6 +786,9 @@ struct AttendanceDTO: Codable {
         punchPhotoBase64 = try container.decodeIfPresent(String.self, forKey: .punchPhotoBase64)
         isVoid = try container.decodeIfPresent(Bool.self, forKey: .isVoid) ?? false
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        punchSiteId = try container.decodeIfPresent(UUID.self, forKey: .punchSiteId)
+        punchSiteName = try container.decodeIfPresent(String.self, forKey: .punchSiteName)
+        punchSiteLocation = try container.decodeIfPresent(String.self, forKey: .punchSiteLocation)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -789,6 +804,9 @@ struct AttendanceDTO: Codable {
         try container.encodeIfPresent(punchPhotoBase64, forKey: .punchPhotoBase64)
         try container.encode(isVoid, forKey: .isVoid)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(punchSiteId, forKey: .punchSiteId)
+        try container.encodeIfPresent(punchSiteName, forKey: .punchSiteName)
+        try container.encodeIfPresent(punchSiteLocation, forKey: .punchSiteLocation)
     }
 }
 
