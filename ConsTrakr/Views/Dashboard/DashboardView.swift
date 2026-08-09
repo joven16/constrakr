@@ -9,7 +9,7 @@ import SwiftData
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncQueue.self) private var syncQueue
-    @Environment(AppTabRouter.self) private var tabRouter
+    @Environment(AppAccessSession.self) private var access
     @State private var viewModel = DashboardViewModel()
 
     private var todayTitle: String {
@@ -20,12 +20,24 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    coverageHero
-                    siteAttendanceSection
-                    if !viewModel.sitesNeedingAttention.isEmpty {
-                        attentionSection
+                    if viewModel.viewSiteId == nil {
+                        noSitePrompt
+                    } else {
+                        if let siteTitle = access.effectiveViewSiteTitle {
+                            siteHeader(siteTitle)
+                        }
+                        coverageHero
+                        if access.isViewingNonDefaultSite, let defaultTitle = access.operatorSiteTitle {
+                            viewingOnlyNote(defaultTitle)
+                        }
+                        if !viewModel.sitesNeedingAttention.isEmpty {
+                            attentionSection
+                        }
+                        if showsAttendanceProgress {
+                            todayMetricsSection
+                        }
+                        rosterSyncSection
                     }
-                    rosterMetricsSection
                 }
                 .padding()
             }
@@ -40,6 +52,11 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    ViewSiteFilterToolbar {
+                        viewModel.refresh()
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Image(systemName: viewModel.isOnline ? "wifi" : "wifi.slash")
                         .foregroundStyle(viewModel.isOnline ? .green : .secondary)
@@ -51,13 +68,16 @@ struct DashboardView: View {
                 viewModel.configure(context: modelContext, syncQueue: syncQueue)
             }
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceHistoryDidClear)) { _ in
-                viewModel.refresh()
+                viewModel.refreshDebounced()
             }
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceDidChange)) { _ in
-                viewModel.refresh()
+                viewModel.refreshDebounced()
             }
             .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
-                viewModel.refresh()
+                viewModel.refreshDebounced()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AppAccessSession.sessionDidChangeNotification)) { _ in
+                viewModel.refreshDebounced()
             }
             .refreshable {
                 await viewModel.syncNow()
@@ -65,10 +85,41 @@ struct DashboardView: View {
         }
     }
 
+    private var noSitePrompt: some View {
+        ContentUnavailableView(
+            access.isAdminUnlocked ? "No job site selected" : "No default job site",
+            systemImage: "mappin.and.ellipse",
+            description: Text(access.isAdminUnlocked
+                ? "Choose a site from the menu above, or set a default under More → Job Sites."
+                : "Set a default site under More → Job sites.")
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    private func siteHeader(_ siteTitle: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "building.2.fill")
+                .foregroundStyle(.teal)
+            Text(access.isViewingNonDefaultSite ? "\(siteTitle) (viewing only)" : siteTitle)
+                .font(.subheadline.weight(.semibold))
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func viewingOnlyNote(_ defaultTitle: String) -> some View {
+        Label("Scanner still uses \(defaultTitle) for GPS check-in.", systemImage: "location.fill")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+    }
+
     private var coverageHero: some View {
         let totals = viewModel.attendanceTotals
         let percent = totals.coveragePercent ?? 0
-        return VStack(spacing: 12) {
+        return VStack(spacing: 14) {
             ZStack {
                 Circle()
                     .stroke(Color(.tertiarySystemFill), lineWidth: 10)
@@ -81,7 +132,7 @@ struct DashboardView: View {
                     if totals.assigned > 0 {
                         Text("\(percent)%")
                             .font(.system(.title, design: .rounded).bold())
-                        Text("\(totals.completionFractionLine)")
+                        Text(totals.completionFractionLine)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -93,24 +144,35 @@ struct DashboardView: View {
             }
             .frame(width: 120, height: 120)
 
-            Text("Today's coverage")
-                .font(.headline)
-            Text("\(todayTitle) · \(viewModel.employeeCount) employee\(viewModel.employeeCount == 1 ? "" : "s") · \(defaultSiteSubtitle)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            VStack(spacing: 4) {
+                Text("Today's coverage")
+                    .font(.headline)
+                Text("\(todayTitle) · \(viewModel.employeeCount) on roster")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
 
             if totals.assigned > 0 {
-                HStack(spacing: 8) {
-                    heroChip(title: "Today", value: totals.inOutLine, tint: .blue)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    heroChip(title: "Checked in", value: "\(totals.checkInCount)", tint: totals.checkInCount > 0 ? .blue : .secondary)
+                    heroChip(title: "Checked out", value: "\(totals.checkOutCount)", tint: totals.checkOutCount > 0 ? .teal : .secondary)
                     heroChip(title: "Absent", value: "\(totals.absent)", tint: totals.absent > 0 ? .red : .secondary)
                     heroChip(title: "Incomplete", value: "\(totals.incomplete)", tint: totals.incomplete > 0 ? .orange : .secondary)
+                    heroChip(title: "Assigned", value: "\(totals.assigned)", tint: .primary)
+                    heroChip(title: "Complete", value: completeCountLine(totals), tint: percent >= 90 ? .green : .secondary)
                 }
             }
+
         }
         .frame(maxWidth: .infinity)
         .padding()
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func completeCountLine(_ totals: DashboardViewModel.AttendanceTotals) -> String {
+        let complete = totals.assigned - totals.incomplete - totals.absent
+        return "\(max(0, complete))"
     }
 
     private func heroChip(title: String, value: String, tint: Color) -> some View {
@@ -123,36 +185,6 @@ struct DashboardView: View {
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private var defaultSiteSubtitle: String {
-        if let site = viewModel.defaultSiteSummary {
-            return site.siteName
-        }
-        return "No default site"
-    }
-
-    private var siteAttendanceSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Default job site", systemImage: "building.2.fill")
-                .font(.headline)
-
-            if let site = viewModel.defaultSiteSummary {
-                SiteAttendanceCard(site: site) {
-                    tabRouter.openDTR()
-                }
-            } else {
-                ContentUnavailableView(
-                    "No default job site",
-                    systemImage: "mappin.and.ellipse",
-                    description: Text("Set a default site under More → Job sites.")
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-            }
-        }
-        .padding()
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
     private var attentionSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Needs attention", systemImage: "exclamationmark.triangle.fill")
@@ -160,22 +192,20 @@ struct DashboardView: View {
                 .foregroundStyle(.orange)
 
             ForEach(viewModel.sitesNeedingAttention) { site in
-                HStack(alignment: .top, spacing: 10) {
-                    Circle()
-                        .fill(coverageColor(for: site.coveragePercent ?? 0))
-                        .frame(width: 8, height: 8)
-                        .padding(.top, 5)
+                HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(site.siteName)
-                            .font(.subheadline.weight(.semibold))
                         Text(attentionSummary(for: site))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.subheadline.weight(.semibold))
+                        if let percent = site.coveragePercent {
+                            Text("\(percent)% coverage today")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     if let percent = site.coveragePercent {
                         Text("\(percent)%")
-                            .font(.caption.bold())
+                            .font(.title3.bold())
                             .foregroundStyle(coverageColor(for: percent))
                     }
                 }
@@ -194,12 +224,55 @@ struct DashboardView: View {
             parts.append("\(site.incompleteCount) incomplete")
         }
         if parts.isEmpty, let percent = site.coveragePercent {
-            parts.append("\(percent)% coverage")
+            return "\(percent)% coverage"
         }
         return parts.joined(separator: " · ")
     }
 
-    private var rosterMetricsSection: some View {
+    private var showsAttendanceProgress: Bool {
+        guard let site = viewModel.selectedSiteSummary else { return false }
+        return site.assignedCount > 0 && site.coveragePercent != nil
+    }
+
+    private var todayMetricsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Today", systemImage: "chart.bar.fill")
+                .font(.headline)
+
+            if let site = viewModel.selectedSiteSummary, site.assignedCount > 0, let percent = site.coveragePercent {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Attendance progress")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(site.inOutLine)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color(.tertiarySystemFill))
+                            Capsule()
+                                .fill(coverageColor(for: percent))
+                                .frame(width: geo.size.width * CGFloat(percent) / 100)
+                        }
+                    }
+                    .frame(height: 8)
+                    Text("\(percent)% of roster with full in/out today")
+                        .font(.caption2)
+                        .foregroundStyle(coverageColor(for: percent))
+                }
+                .padding(12)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .padding()
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var rosterSyncSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Roster & sync", systemImage: "person.3.sequence.fill")
                 .font(.headline)
@@ -212,22 +285,16 @@ struct DashboardView: View {
                     tint: viewModel.enrolledCount == viewModel.employeeCount && viewModel.employeeCount > 0 ? .green : .indigo
                 )
                 metricTile(
+                    title: "Not enrolled",
+                    value: "\(max(0, viewModel.employeeCount - viewModel.enrolledCount))",
+                    subtitle: "Need face registration",
+                    tint: viewModel.enrolledCount < viewModel.employeeCount ? .orange : .secondary
+                )
+                metricTile(
                     title: "Unassigned",
                     value: "\(viewModel.unassignedCount)",
-                    subtitle: "No job site yet",
+                    subtitle: "No job site on roster",
                     tint: viewModel.unassignedCount > 0 ? .orange : .secondary
-                )
-                metricTile(
-                    title: "Checked in",
-                    value: "\(viewModel.attendanceTotals.checkInCount)",
-                    subtitle: "Today at default site",
-                    tint: viewModel.attendanceTotals.checkInCount > 0 ? .blue : .secondary
-                )
-                metricTile(
-                    title: "Incomplete",
-                    value: "\(viewModel.attendanceTotals.incomplete)",
-                    subtitle: "In without out today",
-                    tint: viewModel.attendanceTotals.incomplete > 0 ? .orange : .secondary
                 )
                 metricTile(
                     title: "Pending sync",
@@ -263,105 +330,5 @@ struct DashboardView: View {
         if percent >= 90 { return .green }
         if percent >= 70 { return .orange }
         return .red
-    }
-}
-
-private struct SiteAttendanceCard: View {
-    let site: DashboardViewModel.SiteAttendanceSummary
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(site.siteName)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                        if !site.locationLabel.isEmpty {
-                            Text(site.locationLabel)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 8)
-                    if site.assignedCount > 0 {
-                        VStack(alignment: .trailing, spacing: 0) {
-                            if let percent = site.coveragePercent {
-                                Text("\(percent)%")
-                                    .font(.title2.bold())
-                                    .foregroundStyle(coverageColor(for: site.coverageLevel))
-                            }
-                            Text(site.inOutLine)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Text("No roster")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if site.assignedCount > 0, let percent = site.coveragePercent {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(Color(.tertiarySystemFill))
-                            Capsule()
-                                .fill(coverageColor(for: site.coverageLevel))
-                                .frame(width: geo.size.width * CGFloat(percent) / 100)
-                        }
-                    }
-                    .frame(height: 8)
-
-                    HStack(spacing: 8) {
-                        Text("\(percent)% coverage")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(coverageColor(for: site.coverageLevel))
-                        Spacer()
-                        Text(site.inOutLine)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if site.absentCount > 0 || site.incompleteCount > 0 {
-                        HStack(spacing: 10) {
-                            if site.absentCount > 0 {
-                                Text("\(site.absentCount) absent")
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                            }
-                            if site.incompleteCount > 0 {
-                                Text("\(site.incompleteCount) incomplete")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                            }
-                        }
-                    }
-                } else if site.checkInCount > 0 || site.checkOutCount > 0 {
-                    Text(site.inOutLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("No punches yet")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(12)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func coverageColor(for level: DashboardViewModel.SiteAttendanceSummary.CoverageLevel) -> Color {
-        switch level {
-        case .none: return .secondary
-        case .good: return .green
-        case .warning: return .orange
-        case .critical: return .red
-        }
     }
 }

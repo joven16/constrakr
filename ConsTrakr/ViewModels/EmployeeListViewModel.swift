@@ -13,15 +13,18 @@ final class EmployeeListViewModel {
 
     private(set) var employees: [Employee] = []
     private(set) var listErrorMessage: String?
-    private(set) var defaultSiteId: UUID?
-    private(set) var defaultSiteTitle: String?
-    private(set) var cloudCheckErrorMessage: String?
+    private(set) var viewSiteId: UUID?
+    private(set) var viewSiteTitle: String?
+
     private(set) var cloudReport: EmployeeSyncReport?
     private(set) var isCheckingCloud = false
+    private(set) var cloudCheckErrorMessage: String?
 
-    private var employeeService: EmployeeService?
     private var modelContext: ModelContext?
     private var syncQueue: SyncQueue?
+    private var employeeService: EmployeeService?
+    private let refreshDebouncer = RefreshDebouncer(delayMilliseconds: 250)
+    private let searchDebouncer = RefreshDebouncer(delayMilliseconds: 300)
 
     func configure(context: ModelContext, syncQueue: SyncQueue? = nil) {
         modelContext = context
@@ -30,18 +33,31 @@ final class EmployeeListViewModel {
         refresh()
     }
 
+    func refreshDebounced() {
+        refreshDebouncer.schedule { [weak self] in
+            self?.refresh()
+        }
+    }
+
+    func searchTextChanged() {
+        searchDebouncer.schedule { [weak self] in
+            self?.refresh()
+        }
+    }
+
     func refresh() {
         guard let employeeService else { return }
-        defaultSiteId = JobSiteStore.defaultSiteId ?? JobSiteStore.defaultSite?.id
-        if let defaultSiteId, let site = JobSiteStore.site(id: defaultSiteId) {
-            defaultSiteTitle = site.displayTitle
+        let filterSiteId = AppAccessSession.shared.effectiveViewSiteId
+        viewSiteId = filterSiteId
+        if let filterSiteId, let site = JobSiteStore.site(id: filterSiteId) {
+            viewSiteTitle = site.displayTitle
         } else {
-            defaultSiteTitle = nil
+            viewSiteTitle = nil
         }
         do {
             var list = try employeeService.allEmployees(search: searchText)
-            if let defaultSiteId {
-                list = list.filter { $0.assignedSiteId == defaultSiteId }
+            if let filterSiteId {
+                list = list.filter { $0.assignedSiteId == filterSiteId }
             } else {
                 list = []
             }

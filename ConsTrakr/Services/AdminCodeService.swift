@@ -75,5 +75,6 @@ enum AdminCodeService {
         if let name = response.assignedUserName {
             UserDefaults.standard.set(name, forKey: AppConstants.UserDefaultsKeys.deviceAssignedUserName)
         }
+        AppAccessSession.shared.unlock(operatorName: response.assignedUserName)
     }
 }

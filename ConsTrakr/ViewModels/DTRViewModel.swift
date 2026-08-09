@@ -16,11 +16,12 @@ final class DTRViewModel {
     private(set) var pendingSyncCount = 0
     private(set) var isOnline = false
     private(set) var lastSyncDate: Date?
-    private(set) var defaultSiteId: UUID?
+    private(set) var viewSiteId: UUID?
 
     private var attendanceService: AttendanceService?
     private var employeeService: EmployeeService?
     private var syncQueue: SyncQueue?
+    private let refreshDebouncer = RefreshDebouncer(delayMilliseconds: 250)
 
     struct DTRRow: Identifiable {
         let id: UUID
@@ -39,8 +40,8 @@ final class DTRViewModel {
     }
 
     var selectedSiteTitle: String? {
-        guard let defaultSiteId else { return nil }
-        return JobSiteStore.site(id: defaultSiteId)?.displayTitle
+        guard let viewSiteId else { return nil }
+        return JobSiteStore.site(id: viewSiteId)?.displayTitle
     }
 
     func configure(context: ModelContext, syncQueue: SyncQueue) {
@@ -50,14 +51,21 @@ final class DTRViewModel {
         refresh()
     }
 
+    func refreshDebounced() {
+        refreshDebouncer.schedule { [weak self] in
+            self?.refresh()
+        }
+    }
+
     func refresh() {
         guard let attendanceService, let employeeService else { return }
-        defaultSiteId = JobSiteStore.defaultSiteId ?? JobSiteStore.defaultSite?.id
+        let filterSiteId = AppAccessSession.shared.effectiveViewSiteId
+        viewSiteId = filterSiteId
         pendingSyncCount = syncQueue?.pendingCount ?? 0
         isOnline = NetworkMonitor.shared.isConnected
         lastSyncDate = syncQueue?.lastSyncDate
 
-        guard let defaultSiteId else {
+        guard let filterSiteId else {
             rows = []
             errorMessage = nil
             return
@@ -70,7 +78,7 @@ final class DTRViewModel {
                 .addingTimeInterval(-0.001) ?? start
 
             let assignedEmployees = try employeeService.allEmployees()
-                .filter { $0.assignedSiteId == defaultSiteId }
+                .filter { $0.assignedSiteId == filterSiteId }
                 .sorted {
                     $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
                 }

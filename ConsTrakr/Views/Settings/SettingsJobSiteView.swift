@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SettingsJobSiteView: View {
     @Bindable var viewModel: SettingsViewModel
+    @Environment(AppAccessSession.self) private var access
 
     @State private var showAdminCodePrompt = false
     @State private var pendingAction: AdminGatePendingAction?
@@ -136,6 +137,10 @@ struct SettingsJobSiteView: View {
     private func requestDefaultSiteChange(to newId: UUID?) {
         guard newId != viewModel.effectiveDefaultSiteId else { return }
         adminGateError = nil
+        if access.isAdminUnlocked {
+            viewModel.applyDefaultJobSiteChange(to: newId)
+            return
+        }
         do {
             try AdminCodeService.ensureChangeAllowed()
             pendingAction = .defaultSite(newId)
@@ -148,6 +153,10 @@ struct SettingsJobSiteView: View {
     private func requestGeofenceChange(to enabled: Bool) {
         guard enabled != viewModel.siteGeofenceEnabled else { return }
         adminGateError = nil
+        if access.isAdminUnlocked {
+            viewModel.applyGeofenceChange(enabled: enabled)
+            return
+        }
         do {
             try AdminCodeService.ensureChangeAllowed()
             pendingAction = .geofence(enabled)

@@ -6,10 +6,66 @@
 import CoreLocation
 import SwiftUI
 
+private struct JobSiteFormSnapshot: Equatable {
+    var name: String
+    var locationLabel: String
+    var latitude: Double
+    var longitude: Double
+    var radiusMeters: Double
+    var isDefaultSite: Bool
+
+    static let empty = JobSiteFormSnapshot(
+        name: "",
+        locationLabel: "",
+        latitude: 0,
+        longitude: 0,
+        radiusMeters: 100,
+        isDefaultSite: false
+    )
+
+    static func from(site: JobSite) -> JobSiteFormSnapshot {
+        JobSiteFormSnapshot(
+            name: site.name.trimmingCharacters(in: .whitespacesAndNewlines),
+            locationLabel: site.locationLabel.trimmingCharacters(in: .whitespacesAndNewlines),
+            latitude: site.latitude,
+            longitude: site.longitude,
+            radiusMeters: JobSite.clampedRadius(site.radiusMeters),
+            isDefaultSite: site.id == JobSiteStore.defaultSiteId
+        )
+    }
+
+    func matchesCurrent(
+        name: String,
+        locationLabel: String,
+        latitude: Double,
+        longitude: Double,
+        radiusMeters: Double,
+        isDefaultSite: Bool
+    ) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLocation = locationLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName == self.name
+            && trimmedLocation == self.locationLabel
+            && coordinatesEqual(latitude, self.latitude)
+            && coordinatesEqual(longitude, self.longitude)
+            && radiusMeters == self.radiusMeters
+            && isDefaultSite == self.isDefaultSite
+    }
+
+    private func coordinatesEqual(_ lhs: Double, _ rhs: Double) -> Bool {
+        abs(lhs - rhs) < 0.000001
+    }
+}
+
 struct JobSiteEditorView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppAccessSession.self) private var access
 
     let existingSite: JobSite?
+    /// Shown when presented in a sheet (add flow) where swipe-to-dismiss isn't obvious.
+    var showsCancelButton = false
+
+    private let mapHeight: CGFloat = 300
 
     @State private var name = ""
     @State private var locationLabel = ""
@@ -27,33 +83,67 @@ struct JobSiteEditorView: View {
     @State private var showAdminCodePrompt = false
     @State private var pendingSite: JobSite?
     @State private var pendingSetDefault = false
+    @State private var initialSnapshot = JobSiteFormSnapshot.empty
 
     private var isEditing: Bool { existingSite != nil }
 
+    private var currentSnapshot: JobSiteFormSnapshot {
+        JobSiteFormSnapshot(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            locationLabel: locationLabel.trimmingCharacters(in: .whitespacesAndNewlines),
+            latitude: latitude,
+            longitude: longitude,
+            radiusMeters: radiusMeters,
+            isDefaultSite: isDefaultSite
+        )
+    }
+
+    private var formIsValid: Bool {
+        !currentSnapshot.name.isEmpty
+            && (currentSnapshot.latitude != 0 || currentSnapshot.longitude != 0)
+    }
+
+    private var hasChanges: Bool {
+        !initialSnapshot.matchesCurrent(
+            name: name,
+            locationLabel: locationLabel,
+            latitude: latitude,
+            longitude: longitude,
+            radiusMeters: radiusMeters,
+            isDefaultSite: isDefaultSite
+        )
+    }
+
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (latitude != 0 || longitude != 0)
+        formIsValid && hasChanges
     }
 
     var body: some View {
-        GeometryReader { geo in
-            Form {
-                Section {
-                    TextField("Site name", text: $name)
-                    TextField("Location (e.g. Makati HQ)", text: $locationLabel)
-                } header: {
-                    Text("Site details")
-                }
+        Form {
+            Section {
+                TextField("Site name", text: $name)
+                TextField("Location (e.g. Makati HQ)", text: $locationLabel)
+            } header: {
+                Text("Site details")
+            }
 
+            if isEditing {
                 Section {
-                    JobSiteMapPinEditor(
-                        latitude: $latitude,
-                        longitude: $longitude,
-                        radiusMeters: radiusMeters,
-                        recenterToken: mapRecenterToken
-                    )
-                        .frame(height: geo.size.height * 0.5)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    Toggle("Default site for attendance checks", isOn: $isDefaultSite)
+                } footer: {
+                    Text("The default site is used when an employee has no assigned site, and to gate the scanner tab.")
+                }
+            }
+
+            Section {
+                JobSiteMapPinEditor(
+                    latitude: $latitude,
+                    longitude: $longitude,
+                    radiusMeters: radiusMeters,
+                    recenterToken: mapRecenterToken
+                )
+                .frame(height: mapHeight)
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Radius: \(Int(radiusMeters.rounded())) m")
@@ -98,28 +188,28 @@ struct JobSiteEditorView: View {
             } footer: {
                 Text("Enter latitude (-90 to 90) and longitude (-180 to 180), then apply to move the map pin.")
             }
-
-            if isEditing {
-                Section {
-                    Toggle("Default site for attendance checks", isOn: $isDefaultSite)
-                } footer: {
-                    Text("The default site is used when an employee has no assigned site, and to gate the scanner tab.")
-                }
-            }
-            }
         }
         .navigationTitle(isEditing ? "Edit Site" : "Add Site")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
+            if showsCancelButton {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { saveSite() }
                     .disabled(!canSave)
             }
         }
-        .onAppear { loadExisting() }
+        .task(id: existingSite?.id) {
+            if let existingSite {
+                loadExisting()
+                initialSnapshot = JobSiteFormSnapshot.from(site: existingSite)
+            } else {
+                initialSnapshot = .empty
+            }
+        }
         .onChange(of: latitude) { _, _ in syncCoordinateFieldsFromState() }
         .onChange(of: longitude) { _, _ in syncCoordinateFieldsFromState() }
         .alert("Error", isPresented: Binding(
@@ -133,7 +223,7 @@ struct JobSiteEditorView: View {
         .fullScreenCover(isPresented: $showAdminCodePrompt) {
             AdminCodePromptSheet(
                 title: "Save job site",
-                message: "Enter the admin code to save job site changes on this device.",
+                message: "Enter the admin code to save changes.",
                 onConfirm: { code in
                     try await AdminCodeService.verify(passcode: code)
                     if let pendingSite {
@@ -215,16 +305,31 @@ struct JobSiteEditorView: View {
             longitude: longitude,
             radiusMeters: radiusMeters
         )
-        let setDefault = isDefaultSite || !isEditing || JobSiteStore.defaultSiteId == nil
-
-        pendingSite = site
-        pendingSetDefault = setDefault
-        do {
-            try AdminCodeService.ensureChangeAllowed()
-            showAdminCodePrompt = true
-        } catch {
-            errorMessage = error.localizedDescription
+        let setDefault: Bool
+        if isEditing {
+            setDefault = isDefaultSite
+        } else {
+            // New sites only become default when there isn't one yet.
+            setDefault = JobSiteStore.defaultSiteId == nil
         }
+
+        if isEditing {
+            if access.isAdminUnlocked {
+                commitSave(site: site, setDefault: setDefault)
+                return
+            }
+            pendingSite = site
+            pendingSetDefault = setDefault
+            do {
+                try AdminCodeService.ensureChangeAllowed()
+                showAdminCodePrompt = true
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+
+        commitSave(site: site, setDefault: setDefault)
     }
 
     private func commitSave(site: JobSite, setDefault: Bool) {

@@ -78,6 +78,7 @@ enum AppConstants {
         static let deviceIsBlocked = "sync.deviceIsBlocked"
         static let deviceBlockedReason = "sync.deviceBlockedReason"
         static let deviceAdminCodeRequired = "sync.deviceAdminCodeRequired"
+        static let adminScannerTabEnabled = "settings.adminScannerTabEnabled"
     }
 
     enum Notifications {

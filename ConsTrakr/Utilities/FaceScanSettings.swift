@@ -86,6 +86,13 @@ enum FaceScanSettings {
         notifySettingsDidChange()
     }
 
+    static func applyEnabledSteps(_ enabledByStep: [Step: Bool]) {
+        for step in Step.gestureOrder {
+            UserDefaults.standard.set(enabledByStep[step] ?? true, forKey: storageKey(for: step))
+        }
+        notifySettingsDidChange()
+    }
+
     static func matchingLevel() -> Level? {
         let current = Set(enabledSteps)
         return Level.allCases.first { $0.enabledSteps == current }

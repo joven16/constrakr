@@ -11,6 +11,7 @@ struct EmployeeListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncQueue.self) private var syncQueue
     @Environment(AppTabRouter.self) private var tabRouter
+    @Environment(AppAccessSession.self) private var access
     @State private var viewModel = EmployeeListViewModel()
     @State private var employeesPendingDeletion: [Employee] = []
     @State private var showDeleteConfirmation = false
@@ -40,7 +41,7 @@ struct EmployeeListView: View {
                 Text(deleteConfirmationMessage)
             }
             .onChange(of: viewModel.searchText) { _, _ in
-                viewModel.refresh()
+                viewModel.searchTextChanged()
             }
             .onAppear {
                 viewModel.configure(context: modelContext, syncQueue: syncQueue)
@@ -65,10 +66,13 @@ struct EmployeeListView: View {
                 viewModel.applyCloudReport(syncQueue.lastEmployeeSyncReport)
             }
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
-                viewModel.refresh()
+                viewModel.refreshDebounced()
             }
             .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
-                viewModel.refresh()
+                viewModel.refreshDebounced()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AppAccessSession.sessionDidChangeNotification)) { _ in
+                viewModel.refreshDebounced()
             }
             .refreshable {
                 await viewModel.syncNow()
@@ -77,10 +81,12 @@ struct EmployeeListView: View {
 
     private var employeeList: some View {
         List {
-            if viewModel.defaultSiteId == nil {
+            if viewModel.viewSiteId == nil {
                 Section {
                     Label {
-                        Text("Set a default job site under More → Job Sites to filter employees and DTR.")
+                        Text(access.isAdminUnlocked
+                            ? "Choose a site from the menu above, or set a default under More → Job Sites."
+                            : "Set a default job site under More → Unlock admin → Job Sites.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } icon: {
@@ -88,10 +94,10 @@ struct EmployeeListView: View {
                             .foregroundStyle(.orange)
                     }
                 }
-            } else if let siteTitle = viewModel.defaultSiteTitle {
+            } else if let siteTitle = viewModel.viewSiteTitle {
                 Section {
                     Label {
-                        Text("Showing crew assigned to \(siteTitle)")
+                        Text(access.isViewingNonDefaultSite ? "\(siteTitle) (viewing only)" : siteTitle)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } icon: {
@@ -107,20 +113,22 @@ struct EmployeeListView: View {
                     .listRowSeparator(.hidden)
             }
 
-            if viewModel.defaultSiteId != nil && viewModel.employees.isEmpty {
+            if viewModel.viewSiteId != nil && viewModel.employees.isEmpty {
                 ContentUnavailableView(
                     "No Employees",
                     systemImage: "person.slash",
-                    description: Text("No one is assigned to the default job site yet, or pull down to sync from the server.")
+                    description: Text("No one is assigned to this job site yet, or pull down to sync from the server.")
                 )
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-            } else if viewModel.defaultSiteId == nil && viewModel.employees.isEmpty {
+            } else if viewModel.viewSiteId == nil && viewModel.employees.isEmpty {
                 ContentUnavailableView(
-                    "No Default Site",
+                    "No Job Site",
                     systemImage: "mappin.slash",
-                    description: Text("Choose a default job site under More → Job Sites.")
+                    description: Text(access.isAdminUnlocked
+                        ? "Choose a site from the menu above."
+                        : "Choose a default job site under More → Job Sites.")
                 )
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
@@ -132,21 +140,39 @@ struct EmployeeListView: View {
     }
 
     private var employeeRows: some View {
-        ForEach(viewModel.employees, id: \.id) { employee in
-            EmployeeNavigationRow(
-                employee: employee,
-                cloudItem: viewModel.cloudItem(for: employee.id)
-            )
-        }
-        .onDelete { indexSet in
-            employeesPendingDeletion = indexSet.map { viewModel.employees[$0] }
-            showDeleteConfirmation = true
+        Group {
+            if access.canDeleteEmployees() {
+                ForEach(viewModel.employees, id: \.id) { employee in
+                    EmployeeNavigationRow(
+                        employee: employee,
+                        cloudItem: viewModel.cloudItem(for: employee.id),
+                        canEdit: access.canEditEmployee(employee)
+                    )
+                }
+                .onDelete { indexSet in
+                    employeesPendingDeletion = indexSet.map { viewModel.employees[$0] }
+                    showDeleteConfirmation = true
+                }
+            } else {
+                ForEach(viewModel.employees, id: \.id) { employee in
+                    EmployeeNavigationRow(
+                        employee: employee,
+                        cloudItem: viewModel.cloudItem(for: employee.id),
+                        canEdit: access.canEditEmployee(employee)
+                    )
+                }
+            }
         }
     }
 
     @ToolbarContentBuilder
     private var registerToolbar: some ToolbarContent {
-        if !DeviceAccessGuard.isBlocked {
+        ToolbarItem(placement: .topBarLeading) {
+            ViewSiteFilterToolbar {
+                viewModel.refresh()
+            }
+        }
+        if !DeviceAccessGuard.isBlocked, access.canRegisterEmployee() {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     EmployeeRegistrationView()
@@ -236,10 +262,11 @@ struct EmployeeListView: View {
 private struct EmployeeNavigationRow: View {
     let employee: Employee
     let cloudItem: EmployeeSyncStatusItem?
+    var canEdit: Bool = true
 
     var body: some View {
         NavigationLink {
-            EmployeeDetailView(employee: employee, cloudItem: cloudItem)
+            EmployeeDetailView(employee: employee, cloudItem: cloudItem, canEdit: canEdit)
         } label: {
             EmployeeRow(employee: employee, cloudItem: cloudItem)
         }
@@ -287,11 +314,11 @@ private struct EmployeeRow: View {
     }
 
     private var siteLabel: String {
-        if let id = employee.assignedSiteId, let site = JobSiteStore.site(id: id) {
-            return site.displayTitle
-        }
         if !employee.assignedSiteName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return employee.assignedSiteName
+        }
+        if let id = employee.assignedSiteId, let site = JobSiteStore.site(id: id) {
+            return site.displayTitle
         }
         if let defaultSite = JobSiteStore.defaultSite {
             return "\(defaultSite.displayTitle) (default)"
@@ -299,44 +326,24 @@ private struct EmployeeRow: View {
         return "No job site assigned"
     }
 
-    @ViewBuilder
     private var avatar: some View {
-        if let data = EnrollmentPhotoStore.load(employeeId: employee.id, pose: .center),
-           let image = UIImage(data: data) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 50, height: 50)
-                .clipShape(Circle())
-        } else {
-            ZStack {
-                Circle()
-                    .fill(Color(.systemGray5))
-                    .frame(width: 50, height: 50)
-                Text(initials)
-                    .font(.title3.weight(.medium))
-                    .foregroundStyle(Color(.systemGray))
-            }
-        }
-    }
-
-    private var initials: String {
-        let f = employee.firstName.prefix(1)
-        let l = employee.lastName.prefix(1)
-        return "\(f)\(l)".uppercased()
+        EmployeeAvatarView(employee: employee)
     }
 }
 
 struct EmployeeDetailView: View {
     let employee: Employee
     var cloudItem: EmployeeSyncStatusItem?
+    var canEdit: Bool = true
+
+    @Environment(AppAccessSession.self) private var access
+
+    @State private var faceGallery: FaceGallerySession?
+    @State private var faceGalleryItems: [PhotoGalleryItem] = []
+    @State private var idDocumentImage: UIImage?
 
     private var cloudStatus: EmployeeCloudStatus {
         cloudItem?.status ?? .notChecked
-    }
-
-    private var enrollmentPhotos: [(pose: FacePose, data: Data)] {
-        EnrollmentPhotoStore.loadAll(employeeId: employee.id)
     }
 
     private var assignedSiteLabel: String {
@@ -398,11 +405,10 @@ struct EmployeeDetailView: View {
                     if let capturedAt = employee.idDocumentCapturedAt {
                         LabeledContent("Captured", value: capturedAt.formatted(date: .abbreviated, time: .shortened))
                     }
-                    if let data = IdDocumentPhotoStore.load(employeeId: employee.id),
-                       let image = UIImage(data: data) {
-                        EmployeePhotoPreview(image: image, title: "Government ID")
+                    if let idDocumentImage {
+                        EmployeePhotoPreview(image: idDocumentImage, title: "Government ID")
                             .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
-                    } else {
+                    } else if employee.hasIdDocumentPhoto {
                         Text("ID photo not stored on this device.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -410,12 +416,16 @@ struct EmployeeDetailView: View {
                 }
             }
 
-            Section("Registered Faces") {
-                if enrollmentPhotos.isEmpty {
+            Section {
+                if faceGalleryItems.isEmpty {
                     Text("No registration photos on this device.")
                         .foregroundStyle(.secondary)
                         .font(.subheadline)
                 } else {
+                    Text("Tap a photo to open the gallery. Swipe left or right to browse each pose.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     LazyVGrid(
                         columns: [
                             GridItem(.flexible(), spacing: 12),
@@ -424,12 +434,17 @@ struct EmployeeDetailView: View {
                         ],
                         spacing: 12
                     ) {
-                        ForEach(enrollmentPhotos, id: \.pose) { item in
-                            if let image = UIImage(data: item.data) {
+                        ForEach(Array(faceGalleryItems.enumerated()), id: \.element.id) { index, item in
+                            Button {
+                                faceGallery = FaceGallerySession(startIndex: index)
+                            } label: {
                                 VStack(spacing: 6) {
-                                    EmployeePhotoPreview(image: image, title: item.pose.displayName)
+                                    Image(uiImage: item.image)
+                                        .resizable()
+                                        .scaledToFill()
                                         .aspectRatio(1, contentMode: .fill)
-                                    Text(item.pose.displayName)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    Text(item.title)
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
@@ -437,10 +452,13 @@ struct EmployeeDetailView: View {
                                         .frame(maxWidth: .infinity)
                                 }
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                 }
+            } header: {
+                Text("Registered Faces")
             }
 
             if cloudItem != nil || !employee.faceEmbeddings.isEmpty || (employee.serverId?.isEmpty == false) {
@@ -482,15 +500,47 @@ struct EmployeeDetailView: View {
         .navigationTitle(employee.fullName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    EmployeeEditView(employee: employee)
-                } label: {
-                    Text("Edit")
+            if canEdit {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        EmployeeEditView(employee: employee)
+                    } label: {
+                        Text("Edit")
+                    }
                 }
             }
         }
+        .fullScreenCover(item: $faceGallery) { session in
+            PhotoGalleryLightboxView(items: faceGalleryItems, initialIndex: session.startIndex)
+        }
+        .task(id: employee.id) {
+            let employeeId = employee.id
+            async let galleryTask = Task.detached(priority: .utility) {
+                FacePose.enrollmentOrder.compactMap { pose -> PhotoGalleryItem? in
+                    guard
+                        let data = EnrollmentPhotoStore.load(employeeId: employeeId, pose: pose),
+                        let image = UIImage(data: data)
+                    else { return nil }
+                    return PhotoGalleryItem(id: pose.rawValue, image: image, title: pose.displayName)
+                }
+            }.value
+            async let idPhotoTask = Task.detached(priority: .utility) {
+                guard
+                    let data = IdDocumentPhotoStore.load(employeeId: employeeId),
+                    let image = UIImage(data: data)
+                else { return nil as UIImage? }
+                return image
+            }.value
+
+            faceGalleryItems = await galleryTask
+            idDocumentImage = await idPhotoTask
+        }
     }
+}
+
+private struct FaceGallerySession: Identifiable {
+    let id = UUID()
+    let startIndex: Int
 }
 
 private struct EmployeePhotoPreview: View {

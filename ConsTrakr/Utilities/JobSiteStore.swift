@@ -10,13 +10,30 @@ enum JobSiteStore {
     static let sitesDidChangeNotification = Notification.Name("constrakr.jobSitesDidChange")
 
     private static var didMigrateLegacy = false
+    private static var cachedSites: [JobSite]?
+    private static var cachedSitesData: Data?
 
     static var allSites: [JobSite] {
         migrateLegacyIfNeeded()
-        guard let data = UserDefaults.standard.data(forKey: AppConstants.UserDefaultsKeys.jobSitesJSON),
-              let decoded = try? JSONDecoder().decode([JobSite].self, from: data)
-        else { return [] }
-        return decoded.sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
+        guard let data = UserDefaults.standard.data(forKey: AppConstants.UserDefaultsKeys.jobSitesJSON) else {
+            cachedSites = []
+            cachedSitesData = nil
+            return []
+        }
+        if let cachedSites, cachedSitesData == data {
+            return cachedSites
+        }
+        guard let decoded = try? JSONDecoder().decode([JobSite].self, from: data) else {
+            cachedSites = []
+            cachedSitesData = data
+            return []
+        }
+        let sorted = decoded.sorted {
+            $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending
+        }
+        cachedSites = sorted
+        cachedSitesData = data
+        return sorted
     }
 
     static var pendingDeleteIds: [UUID] {
@@ -207,7 +224,10 @@ enum JobSiteStore {
     }
 
     static func delete(id: UUID, recordPendingSync: Bool = true) {
-        if recordPendingSync {
+        clearPendingUpload(id: id)
+
+        // Only queue a server delete when IMS has seen this site before.
+        if recordPendingSync, lastKnownRemoteIds().contains(id) {
             var pending = pendingDeleteIds
             if !pending.contains(id) {
                 pending.append(id)
@@ -217,6 +237,7 @@ enum JobSiteStore {
                 )
             }
         }
+
         let sites = allSites.filter { $0.id != id }
         persist(sites)
         if defaultSiteId == id {
@@ -226,10 +247,12 @@ enum JobSiteStore {
 
     static func clearPendingDelete(id: UUID) {
         let remaining = pendingDeleteIds.filter { $0 != id }
+        guard remaining.count != pendingDeleteIds.count else { return }
         UserDefaults.standard.set(
             remaining.map(\.uuidString),
             forKey: AppConstants.UserDefaultsKeys.pendingJobSiteDeletions
         )
+        postChange()
     }
 
     static func markPendingUpload(id: UUID) {
@@ -245,10 +268,42 @@ enum JobSiteStore {
 
     static func clearPendingUpload(id: UUID) {
         let remaining = pendingUploadIds.filter { $0 != id }
+        guard remaining.count != pendingUploadIds.count else { return }
         UserDefaults.standard.set(
             remaining.map(\.uuidString),
             forKey: AppConstants.UserDefaultsKeys.pendingJobSiteUploads
         )
+        postChange()
+    }
+
+    /// Drops stale queue entries (e.g. add then delete before sync).
+    static func reconcilePendingSync() {
+        let localIds = Set(allSites.map(\.id))
+        let remoteIds = Set(lastKnownRemoteIds())
+
+        let currentUploads = pendingUploadIds
+        let currentDeletes = pendingDeleteIds
+        let uploads = currentUploads.filter { localIds.contains($0) }
+        let deletes = currentDeletes.filter { remoteIds.contains($0) }
+
+        var changed = false
+        if uploads != currentUploads {
+            UserDefaults.standard.set(
+                uploads.map(\.uuidString),
+                forKey: AppConstants.UserDefaultsKeys.pendingJobSiteUploads
+            )
+            changed = true
+        }
+        if deletes != currentDeletes {
+            UserDefaults.standard.set(
+                deletes.map(\.uuidString),
+                forKey: AppConstants.UserDefaultsKeys.pendingJobSiteDeletions
+            )
+            changed = true
+        }
+        if changed {
+            postChange()
+        }
     }
 
     static func setDefaultSite(id: UUID) {
@@ -408,9 +463,20 @@ enum JobSiteStore {
         )
     }
 
+    private static func invalidateCache() {
+        cachedSites = nil
+        cachedSitesData = nil
+    }
+
     private static func persist(_ sites: [JobSite]) {
         if let data = try? JSONEncoder().encode(sites) {
             UserDefaults.standard.set(data, forKey: AppConstants.UserDefaultsKeys.jobSitesJSON)
+            cachedSites = sites.sorted {
+                $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending
+            }
+            cachedSitesData = data
+        } else {
+            invalidateCache()
         }
         postChange()
     }

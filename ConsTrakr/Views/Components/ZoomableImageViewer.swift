@@ -267,3 +267,235 @@ struct PhotoLightboxView: View {
         }
     }
 }
+
+// MARK: - Swipeable gallery
+
+struct PhotoGalleryItem: Identifiable {
+    let id: String
+    let image: UIImage
+    let title: String
+}
+
+final class PhotoGalleryViewController: UIPageViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+    private let viewers: [PhotoViewerViewController]
+    private(set) var currentIndex: Int
+
+    var onIndexChange: ((Int) -> Void)?
+    var onSingleTap: (() -> Void)?
+    var onDismiss: (() -> Void)?
+
+    init(items: [PhotoGalleryItem], initialIndex: Int) {
+        viewers = items.map { PhotoViewerViewController(image: $0.image) }
+        currentIndex = items.isEmpty ? 0 : min(max(0, initialIndex), items.count - 1)
+        super.init(
+            transitionStyle: .scroll,
+            navigationOrientation: .horizontal,
+            options: [UIPageViewController.OptionsKey.interPageSpacing: 12]
+        )
+        super.dataSource = self
+        super.delegate = self
+
+        for viewer in viewers {
+            viewer.onSingleTap = { [weak self] in self?.onSingleTap?() }
+            viewer.onDismiss = { [weak self] in self?.onDismiss?() }
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        if let first = viewers[safe: currentIndex] {
+            setViewControllers([first], direction: .forward, animated: false)
+        }
+    }
+
+    override var prefersStatusBarHidden: Bool { true }
+
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        viewControllerBefore viewController: UIViewController
+    ) -> UIViewController? {
+        guard
+            let viewer = viewController as? PhotoViewerViewController,
+            let index = viewers.firstIndex(where: { $0 === viewer }),
+            index > 0
+        else { return nil }
+        return viewers[index - 1]
+    }
+
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        viewControllerAfter viewController: UIViewController
+    ) -> UIViewController? {
+        guard
+            let viewer = viewController as? PhotoViewerViewController,
+            let index = viewers.firstIndex(where: { $0 === viewer }),
+            index + 1 < viewers.count
+        else { return nil }
+        return viewers[index + 1]
+    }
+
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        didFinishAnimating finished: Bool,
+        previousViewControllers: [UIViewController],
+        transitionCompleted completed: Bool
+    ) {
+        guard
+            completed,
+            let viewer = viewControllers?.first as? PhotoViewerViewController,
+            let index = viewers.firstIndex(where: { $0 === viewer }),
+            index != currentIndex
+        else { return }
+        currentIndex = index
+        onIndexChange?(index)
+    }
+}
+
+private struct PhotoGalleryBrowser: UIViewControllerRepresentable {
+    let items: [PhotoGalleryItem]
+    let initialIndex: Int
+    @Binding var currentIndex: Int
+    let onSingleTap: () -> Void
+    let onDismiss: () -> Void
+
+    func makeUIViewController(context: Context) -> PhotoGalleryViewController {
+        let controller = PhotoGalleryViewController(items: items, initialIndex: initialIndex)
+        controller.onIndexChange = { index in
+            currentIndex = index
+        }
+        controller.onSingleTap = onSingleTap
+        controller.onDismiss = onDismiss
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: PhotoGalleryViewController, context: Context) {
+        uiViewController.onSingleTap = onSingleTap
+        uiViewController.onDismiss = onDismiss
+    }
+}
+
+struct PhotoGalleryLightboxView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let items: [PhotoGalleryItem]
+    let initialIndex: Int
+
+    @State private var currentIndex: Int
+    @State private var showChrome = true
+
+    init(items: [PhotoGalleryItem], initialIndex: Int = 0) {
+        self.items = items
+        let clamped = items.isEmpty ? 0 : min(max(0, initialIndex), items.count - 1)
+        self.initialIndex = clamped
+        _currentIndex = State(initialValue: clamped)
+    }
+
+    var body: some View {
+        ZStack {
+            PhotoGalleryBrowser(
+                items: items,
+                initialIndex: initialIndex,
+                currentIndex: $currentIndex,
+                onSingleTap: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showChrome.toggle()
+                    }
+                },
+                onDismiss: {
+                    dismiss()
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+
+            if showChrome {
+                VStack(spacing: 0) {
+                    topChrome
+                    Spacer(minLength: 0)
+                    if items.count > 1 {
+                        pageIndicator
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+        .background(Color.black)
+        .ignoresSafeArea()
+    }
+
+    private var topChrome: some View {
+        HStack(spacing: 12) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .accessibilityLabel("Close")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(items[safe: currentIndex]?.title ?? "")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                if items.count > 1 {
+                    Text("\(currentIndex + 1) of \(items.count)")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background {
+            LinearGradient(
+                colors: [Color.black.opacity(0.7), Color.clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .top)
+        }
+    }
+
+    private var pageIndicator: some View {
+        HStack(spacing: 6) {
+            ForEach(items.indices, id: \.self) { index in
+                Circle()
+                    .fill(index == currentIndex ? Color.white : Color.white.opacity(0.35))
+                    .frame(width: index == currentIndex ? 7 : 6, height: index == currentIndex ? 7 : 6)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .background {
+            LinearGradient(
+                colors: [Color.clear, Color.black.opacity(0.55)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .bottom)
+        }
+        .accessibilityLabel("Photo \(currentIndex + 1) of \(items.count)")
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}

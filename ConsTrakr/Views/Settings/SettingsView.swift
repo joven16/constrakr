@@ -25,10 +25,12 @@ struct SettingsView: View {
     private var settingsForm: some View {
         List {
             appearanceSection
-            statusSection
-            syncSection
-            syncAccountSection
-            configurationSection
+            if viewModel.canShowAdminSettingsSections {
+                statusSection
+                syncSection
+                syncAccountSection
+                configurationSection
+            }
             aboutSection
         }
         .listStyle(.insetGrouped)
@@ -225,10 +227,7 @@ struct SettingsView: View {
         Section("About") {
             LabeledContent("App", value: AppConstants.appName)
             LabeledContent("Face model", value: MatchThresholdSettings.engineName)
-            Text("Developed and owned by Joven Lusterio")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 2)
+            LabeledContent("Owner/Developer", value: "Joven Lusterio")
         }
     }
 

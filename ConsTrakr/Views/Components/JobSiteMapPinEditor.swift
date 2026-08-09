@@ -69,9 +69,12 @@ struct JobSiteMapPinEditor: View {
             }
             .mapStyle(mapLayer.style)
             .onMapCameraChange(frequency: .onEnd) { context in
+                guard !ignoreBindingRecenter else { return }
+                let center = context.region.center
+                guard center.latitude.isFinite, center.longitude.isFinite else { return }
                 ignoreBindingRecenter = true
-                latitude = context.region.center.latitude
-                longitude = context.region.center.longitude
+                latitude = center.latitude
+                longitude = center.longitude
                 cameraDistance = context.camera.distance
                 didSeedCoordinate = true
                 Task { @MainActor in
@@ -118,6 +121,7 @@ struct JobSiteMapPinEditor: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .padding(10)
         }
+        .frame(minHeight: 240)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onAppear {
             seedInitialCamera()
@@ -157,7 +161,9 @@ struct JobSiteMapPinEditor: View {
     private func seedInitialCamera() {
         guard hasPin else {
             if !didSeedCoordinate {
-                position = .userLocation(fallback: .automatic)
+                // Avoid `.userLocation` here — requesting GPS while Map is embedded in a Form
+                // can crash during navigation transitions. Users can tap "Use My Current Location".
+                position = .automatic
             }
             return
         }
@@ -179,6 +185,7 @@ struct JobSiteMapPinEditor: View {
     }
 
     private func applyCamera(center: CLLocationCoordinate2D, distance: CLLocationDistance) {
+        ignoreBindingRecenter = true
         position = .camera(
             MapCamera(
                 centerCoordinate: center,
@@ -187,5 +194,9 @@ struct JobSiteMapPinEditor: View {
                 pitch: 0
             )
         )
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            ignoreBindingRecenter = false
+        }
     }
 }

@@ -10,6 +10,7 @@ struct EmployeeEditView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(SyncQueue.self) private var syncQueue
+    @Environment(AppAccessSession.self) private var access
 
     let employee: Employee
 
@@ -20,9 +21,6 @@ struct EmployeeEditView: View {
     @State private var assignedSiteId: UUID?
     @State private var errorMessage: String?
     @State private var isSaving = false
-    @State private var isAdminVerified = false
-    @State private var showAdminCodePrompt = false
-    @State private var adminGateError: String?
 
     private var isFormValid: Bool {
         !firstName.trimmingCharacters(in: .whitespaces).isEmpty
@@ -30,43 +28,31 @@ struct EmployeeEditView: View {
             && DepartmentSelectionValidator.isComplete(department: department, position: position)
     }
 
+    private var usesOperatorSiteLock: Bool {
+        !access.isAdminUnlocked
+    }
+
+    private var lockedOperatorSiteId: UUID? {
+        usesOperatorSiteLock ? access.operatorSiteId : nil
+    }
+
     var body: some View {
         Group {
-            if isAdminVerified {
+            if access.canEditEmployee(employee) {
                 editForm
             } else {
-                adminGatePlaceholder
+                accessDeniedView
             }
         }
         .navigationTitle("Edit Employee")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            guard !isAdminVerified else { return }
-            presentAdminGateIfNeeded()
-        }
-        .fullScreenCover(isPresented: $showAdminCodePrompt) {
-            AdminCodePromptSheet(
-                title: "Edit employee",
-                message: "Enter the admin code to edit employee records on this device.",
-                onConfirm: { code in
-                    try await AdminCodeService.verify(passcode: code)
-                    isAdminVerified = true
-                    showAdminCodePrompt = false
-                    adminGateError = nil
-                },
-                onCancel: {
-                    showAdminCodePrompt = false
-                    dismiss()
-                }
-            )
-        }
     }
 
-    private var adminGatePlaceholder: some View {
+    private var accessDeniedView: some View {
         ContentUnavailableView {
-            Label("Admin code required", systemImage: "lock.fill")
+            Label("Not allowed", systemImage: "hand.raised.fill")
         } description: {
-            Text(adminGateError ?? "Enter the 6-digit admin code to edit this employee.")
+            Text("You can only edit employees assigned to \(access.operatorSiteTitle ?? "your site"). Unlock admin to edit other sites.")
         }
     }
 
@@ -89,11 +75,19 @@ struct EmployeeEditView: View {
             }
 
             Section {
-                JobSitePickerField(selectedSiteId: $assignedSiteId, allowNone: true)
+                JobSitePickerField(
+                    selectedSiteId: $assignedSiteId,
+                    allowNone: access.isAdminUnlocked,
+                    lockedSiteId: lockedOperatorSiteId
+                )
             } header: {
                 Text("Job Site")
             } footer: {
-                Text("Pick where this employee must be for Time In / Time Out. Choose “None” to use the app default site from Settings.")
+                if usesOperatorSiteLock {
+                    Text("Operators keep employees on the device’s current site.")
+                } else {
+                    Text("Pick where this employee must be for Time In / Time Out. Choose “None” to use the app default site from Settings.")
+                }
             }
         }
         .toolbar {
@@ -109,11 +103,14 @@ struct EmployeeEditView: View {
             lastName = employee.lastName
             department = employee.department
             position = employee.position
-            assignedSiteId = employee.assignedSiteId
+            assignedSiteId = employee.assignedSiteId ?? access.operatorSiteId
+            if let lockedOperatorSiteId {
+                assignedSiteId = lockedOperatorSiteId
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
             if assignedSiteId != nil, JobSiteStore.site(id: assignedSiteId) == nil {
-                assignedSiteId = nil
+                assignedSiteId = lockedOperatorSiteId ?? access.operatorSiteId
             }
         }
         .alert("Could Not Save", isPresented: Binding(
@@ -126,20 +123,11 @@ struct EmployeeEditView: View {
         }
     }
 
-    private func presentAdminGateIfNeeded() {
-        adminGateError = nil
-        do {
-            try AdminCodeService.ensureChangeAllowed()
-            showAdminCodePrompt = true
-        } catch {
-            adminGateError = error.localizedDescription
-        }
-    }
-
     private func saveChanges() {
         isSaving = true
         defer { isSaving = false }
 
+        let siteId = lockedOperatorSiteId ?? assignedSiteId
         let service = EmployeeService(context: modelContext)
         do {
             try service.updateProfile(
@@ -148,7 +136,7 @@ struct EmployeeEditView: View {
                 lastName: lastName,
                 department: department,
                 position: position,
-                assignedSiteId: assignedSiteId
+                assignedSiteId: siteId
             )
             Task { await syncQueue.syncNow(mode: .quick, scope: .employees) }
             dismiss()

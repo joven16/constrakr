@@ -62,20 +62,23 @@ struct JobSitesListView: View {
         }
         .sheet(isPresented: $showAddSite) {
             NavigationStack {
-                JobSiteEditorView(existingSite: nil)
+                JobSiteEditorView(existingSite: nil, showsCancelButton: true)
             }
         }
-        .onAppear { reload() }
+        .onAppear { reload(reconcilePending: true) }
         .onReceive(NotificationCenter.default.publisher(for: JobSiteStore.sitesDidChangeNotification)) { _ in
             reload()
         }
         .refreshable {
             await syncQueue.syncNow(mode: .quick, scope: .all)
-            reload()
+            reload(reconcilePending: true)
         }
     }
 
-    private func reload() {
+    private func reload(reconcilePending: Bool = false) {
+        if reconcilePending {
+            JobSiteStore.reconcilePendingSync()
+        }
         sites = JobSiteStore.allSites
     }
 

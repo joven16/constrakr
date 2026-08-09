@@ -230,7 +230,8 @@ final class SyncService {
         let rangeEnd: Date
         if let focusDate {
             rangeStart = calendar.startOfDay(for: focusDate)
-            rangeEnd = rangeStart
+            rangeEnd = calendar.date(byAdding: .day, value: 1, to: rangeStart)?
+                .addingTimeInterval(-0.001) ?? rangeStart
         } else if let recent = calendar.date(byAdding: .day, value: -14, to: Date()) {
             rangeStart = calendar.startOfDay(for: recent)
             rangeEnd = calendar.startOfDay(for: Date())
@@ -265,12 +266,17 @@ final class SyncService {
             let remoteServerIds = Set(
                 activeRows.compactMap { APIDecoding.normalizedServerId($0.serverId) }
             )
-            let localDayRecords = try attRepo.fetchAll(from: dayStart, to: dayEnd)
-            for local in localDayRecords {
-                guard let serverId = APIDecoding.normalizedServerId(local.serverId) else { continue }
-                if !remoteServerIds.contains(serverId) {
-                    try attRepo.delete(local, persist: false)
-                    changed = true
+            // Only prune when IMS returned rows for this day — avoids wiping local punches
+            // after upload if the pull is empty or still catching up.
+            if !remoteServerIds.isEmpty {
+                let localDayRecords = try attRepo.fetchAll(from: dayStart, to: dayEnd)
+                for local in localDayRecords {
+                    guard let serverId = APIDecoding.normalizedServerId(local.serverId) else { continue }
+                    guard local.syncStatus == .synced else { continue }
+                    if !remoteServerIds.contains(serverId) {
+                        try attRepo.delete(local, persist: false)
+                        changed = true
+                    }
                 }
             }
         }
@@ -1153,10 +1159,16 @@ final class SyncService {
 
     /// Bidirectional job site catalog sync — runs before employee upload so assignments resolve.
     private func syncJobSites(context: ModelContext) async throws -> Int {
+        JobSiteStore.reconcilePendingSync()
+
         for siteId in JobSiteStore.pendingDeleteIds {
             do {
                 try await api.deleteJobSite(id: siteId)
                 JobSiteStore.clearPendingDelete(id: siteId)
+            } catch let error as NetworkError {
+                if case .serverError(404, _) = error {
+                    JobSiteStore.clearPendingDelete(id: siteId)
+                }
             } catch {
                 // Retry on next sync if offline or server error.
             }

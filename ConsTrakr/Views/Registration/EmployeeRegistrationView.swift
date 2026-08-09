@@ -12,6 +12,7 @@ struct EmployeeRegistrationView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppTabRouter.self) private var tabRouter
     @Environment(SyncQueue.self) private var syncQueue
+    @Environment(AppAccessSession.self) private var access
     @State private var viewModel = EmployeeRegistrationViewModel()
     @State private var showRegistrationSuccessAlert = false
 
@@ -70,6 +71,9 @@ struct EmployeeRegistrationView: View {
         }
         .onAppear {
             viewModel.configure(context: modelContext)
+            if !access.isAdminUnlocked, let siteId = access.operatorSiteId {
+                viewModel.assignedSiteId = siteId
+            }
         }
         .onDisappear {
             viewModel.stopCamera()
@@ -89,11 +93,18 @@ struct EmployeeRegistrationView: View {
 
                 DepartmentAndPositionFields(department: $viewModel.department, position: $viewModel.position)
 
-                JobSitePickerField(selectedSiteId: $viewModel.assignedSiteId)
+                JobSitePickerField(
+                    selectedSiteId: $viewModel.assignedSiteId,
+                    lockedSiteId: access.isAdminUnlocked ? nil : access.operatorSiteId
+                )
             } header: {
                 Text("Employee Information")
             } footer: {
-                Text("Pick department first, then position. Employee ID is assigned automatically when registration completes (YYYYMM + sequence, e.g. 202608001).\n\nAssign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
+                if access.isAdminUnlocked {
+                    Text("Pick department first, then position. Employee ID is assigned automatically when registration completes (YYYYMM + sequence, e.g. 202608001).\n\nAssign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
+                } else {
+                    Text("Pick department first, then position. New employees are assigned to \(access.operatorSiteTitle ?? "your site").\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
+                }
             }
         }
         .scrollContentBackground(.hidden)

@@ -47,11 +47,7 @@ final class SettingsViewModel {
         }
     }
 
-    var matchThreshold: Double {
-        didSet {
-            UserDefaults.standard.set(matchThreshold, forKey: AppConstants.UserDefaultsKeys.matchThreshold)
-        }
-    }
+    var matchThreshold: Double
 
     /// Security: raw frames stay off unless explicitly enabled for debug / re-enrollment.
     var uploadRawFramesEnabled: Bool {
@@ -60,40 +56,11 @@ final class SettingsViewModel {
         }
     }
 
-    var faceScanCenterEnabled = true {
-        didSet {
-            guard !isApplyingFaceScanBatch else { return }
-            Task { await saveFaceScanStep(.closeUp, enabled: faceScanCenterEnabled) }
-        }
-    }
-
-    var faceScanLeftEnabled = true {
-        didSet {
-            guard !isApplyingFaceScanBatch else { return }
-            Task { await saveFaceScanStep(.lookLeft, enabled: faceScanLeftEnabled) }
-        }
-    }
-
-    var faceScanRightEnabled = true {
-        didSet {
-            guard !isApplyingFaceScanBatch else { return }
-            Task { await saveFaceScanStep(.lookRight, enabled: faceScanRightEnabled) }
-        }
-    }
-
-    var faceScanUpEnabled = true {
-        didSet {
-            guard !isApplyingFaceScanBatch else { return }
-            Task { await saveFaceScanStep(.lookUp, enabled: faceScanUpEnabled) }
-        }
-    }
-
-    var faceScanDownEnabled = true {
-        didSet {
-            guard !isApplyingFaceScanBatch else { return }
-            Task { await saveFaceScanStep(.lookDown, enabled: faceScanDownEnabled) }
-        }
-    }
+    var faceScanCenterEnabled = true
+    var faceScanLeftEnabled = true
+    var faceScanRightEnabled = true
+    var faceScanUpEnabled = true
+    var faceScanDownEnabled = true
 
     private(set) var faceScanSettingsMessage: String?
     private(set) var faceScanLevel: FaceScanSettings.Level?
@@ -215,6 +182,11 @@ final class SettingsViewModel {
         refresh()
     }
 
+    /// Settings is only linked from More when admin is unlocked; this guards deep links.
+    var canShowAdminSettingsSections: Bool {
+        AppAccessSession.shared.canAccessAdminSettings()
+    }
+
     func refresh() {
         isAdminAuthenticated = AdminSession.shared.isAuthenticated
         pendingCount = syncQueue?.pendingCount ?? 0
@@ -265,26 +237,31 @@ final class SettingsViewModel {
         isApplyingFaceScanBatch = false
     }
 
-    func selectFaceScanLevel(_ level: FaceScanSettings.Level) async {
+    func saveScannerSettings(
+        matchThreshold: Double,
+        centerEnabled: Bool,
+        leftEnabled: Bool,
+        rightEnabled: Bool,
+        upEnabled: Bool,
+        downEnabled: Bool
+    ) async {
         isSavingFaceScanSettings = true
         defer { isSavingFaceScanSettings = false }
-        isApplyingFaceScanBatch = true
-        FaceScanSettings.applyLevel(level)
-        await Task.yield()
-        try? await Task.sleep(for: .milliseconds(180))
-        reloadFaceScanPoseSettings()
-        faceScanSettingsMessage = nil
-    }
 
-    private func saveFaceScanStep(_ step: FaceScanSettings.Step, enabled: Bool) async {
-        guard !isApplyingFaceScanBatch else { return }
-        guard FaceScanSettings.isStepEnabled(step) != enabled else { return }
-        isSavingFaceScanSettings = true
-        defer { isSavingFaceScanSettings = false }
-        FaceScanSettings.setStepEnabled(step, enabled)
+        UserDefaults.standard.set(matchThreshold, forKey: AppConstants.UserDefaultsKeys.matchThreshold)
+        self.matchThreshold = matchThreshold
+
+        FaceScanSettings.applyEnabledSteps([
+            .closeUp: centerEnabled,
+            .lookLeft: leftEnabled,
+            .lookRight: rightEnabled,
+            .lookUp: upEnabled,
+            .lookDown: downEnabled,
+        ])
+
         await Task.yield()
-        try? await Task.sleep(for: .milliseconds(180))
-        faceScanLevel = FaceScanSettings.matchingLevel()
+        try? await Task.sleep(for: .milliseconds(120))
+        reloadFaceScanPoseSettings()
         faceScanSettingsMessage = nil
     }
 

@@ -8,13 +8,28 @@ import Foundation
 enum DepartmentStore {
     static let catalogDidChangeNotification = Notification.Name("constrakr.departmentsDidChange")
 
+    private static var cachedCatalog: [DepartmentCatalogCategory]?
+    private static var cachedCatalogData: Data?
+
     static var catalog: [DepartmentCatalogCategory] {
-        guard let data = UserDefaults.standard.data(forKey: AppConstants.UserDefaultsKeys.departmentCatalogJSON),
-              let decoded = try? JSONDecoder().decode([DepartmentCatalogCategory].self, from: data),
-              !decoded.isEmpty
-        else {
+        guard let data = UserDefaults.standard.data(forKey: AppConstants.UserDefaultsKeys.departmentCatalogJSON) else {
+            cachedCatalog = DepartmentDefaults.builtInCatalog
+            cachedCatalogData = nil
             return DepartmentDefaults.builtInCatalog
         }
+        if let cachedCatalog, cachedCatalogData == data {
+            return cachedCatalog
+        }
+        guard
+            let decoded = try? JSONDecoder().decode([DepartmentCatalogCategory].self, from: data),
+            !decoded.isEmpty
+        else {
+            cachedCatalog = DepartmentDefaults.builtInCatalog
+            cachedCatalogData = data
+            return DepartmentDefaults.builtInCatalog
+        }
+        cachedCatalog = decoded
+        cachedCatalogData = data
         return decoded
     }
 
@@ -37,6 +52,8 @@ enum DepartmentStore {
         let existing = UserDefaults.standard.data(forKey: AppConstants.UserDefaultsKeys.departmentCatalogJSON)
         if existing == data { return }
         UserDefaults.standard.set(data, forKey: AppConstants.UserDefaultsKeys.departmentCatalogJSON)
+        cachedCatalog = remote
+        cachedCatalogData = data
         postChange()
     }
 

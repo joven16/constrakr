@@ -2,6 +2,8 @@
 //  PasscodeKeypadView.swift
 //  ConsTrakr
 //
+//  Layout and styling aligned to iOS Settings / Lock Screen passcode entry.
+//
 
 import SwiftUI
 #if canImport(UIKit)
@@ -20,8 +22,12 @@ struct PasscodeKeypadView: View {
     @State private var errorMessage: String?
     @State private var isVerifying = false
     @State private var shakeOffset: CGFloat = 0
+    @State private var hapticTick = 0
 
-    private let keypadColumns = Array(repeating: GridItem(.flexible(), spacing: 22), count: 3)
+    /// Native passcode key diameter on modern iPhones.
+    private let keySize: CGFloat = 84
+    private let rowSpacing: CGFloat = 16
+    private let columnSpacing: CGFloat = 24
 
     var body: some View {
         ZStack {
@@ -31,70 +37,75 @@ struct PasscodeKeypadView: View {
             VStack(spacing: 0) {
                 topBar
 
-                Spacer(minLength: 28)
+                Spacer(minLength: 0)
 
-                header
+                VStack(spacing: 28) {
+                    VStack(spacing: 0) {
+                        Text(title)
+                            .font(.title3)
+                            .fontWeight(.regular)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 32)
 
-                passcodeDots
-                    .padding(.top, 32)
-                    .offset(x: shakeOffset)
+                        if !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 40)
+                                .padding(.top, 8)
+                        }
 
-                Group {
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                    } else {
-                        Text(" ")
+                        passcodeDots
+                            .padding(.top, 24)
+                            .offset(x: shakeOffset)
+
+                        statusLine
+                            .padding(.top, 14)
+                            .frame(minHeight: 22)
+                    }
+
+                    VStack(spacing: 20) {
+                        keypad
+                            .fixedSize(horizontal: true, vertical: true)
+
+                        if isVerifying {
+                            ProgressView()
+                        }
                     }
                 }
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .padding(.top, 10)
-                .frame(minHeight: 22)
+                .frame(maxWidth: .infinity)
 
-                Spacer(minLength: 28)
-
-                keypad
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 16)
-
-                if isVerifying {
-                    ProgressView()
-                        .padding(.bottom, 32)
-                } else {
-                    Color.clear
-                        .frame(height: 32)
-                }
+                Spacer(minLength: 0)
             }
         }
         .interactiveDismissDisabled(isVerifying)
+        .sensoryFeedback(.impact(weight: .light), trigger: hapticTick)
     }
 
     private var topBar: some View {
         HStack {
-            Button("Cancel") {
-                onCancel()
-            }
-            .font(.body)
-            .disabled(isVerifying)
+            Button("Cancel", action: onCancel)
+                .font(.body)
+                .foregroundStyle(Color.accentColor)
+                .disabled(isVerifying)
             Spacer()
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
     }
 
-    private var header: some View {
-        VStack(spacing: 12) {
-            Text(title)
-                .font(.title3.weight(.semibold))
-                .multilineTextAlignment(.center)
-
-            Text(subtitle)
+    @ViewBuilder
+    private var statusLine: some View {
+        if let errorMessage {
+            Text(errorMessage)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.red)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
+        } else {
+            Color.clear.frame(height: 1)
         }
     }
 
@@ -104,72 +115,67 @@ struct PasscodeKeypadView: View {
                 Circle()
                     .fill(index < digits.count ? Color.primary : Color.clear)
                     .overlay {
-                        Circle()
-                            .strokeBorder(Color.secondary.opacity(index < digits.count ? 0 : 0.35), lineWidth: 1.5)
+                        if index >= digits.count {
+                            Circle()
+                                .strokeBorder(Color.secondary.opacity(0.4), lineWidth: 1.5)
+                        }
                     }
-                    .frame(width: 14, height: 14)
+                    .frame(width: 12, height: 12)
             }
         }
-        .animation(.easeOut(duration: 0.12), value: digits.count)
+        .animation(.easeOut(duration: 0.1), value: digits.count)
         .accessibilityLabel("\(digits.count) of \(maxDigits) digits entered")
     }
 
     private var keypad: some View {
-        LazyVGrid(columns: keypadColumns, spacing: 16) {
-            ForEach(1...9, id: \.self) { digit in
-                keypadDigit("\(digit)") {
-                    appendDigit("\(digit)")
-                }
+        VStack(spacing: rowSpacing) {
+            keypadRow(["1", "2", "3"])
+            keypadRow(["4", "5", "6"])
+            keypadRow(["7", "8", "9"])
+            HStack(spacing: columnSpacing) {
+                Color.clear
+                    .frame(width: keySize, height: keySize)
+                    .accessibilityHidden(true)
+                digitKey("0") { appendDigit("0") }
+                deleteKey
             }
-
-            Color.clear
-                .frame(height: 80)
-
-            keypadDigit("0") {
-                appendDigit("0")
-            }
-
-            keypadIcon("delete.left.fill") {
-                deleteDigit()
-            }
-            .foregroundStyle(.primary)
         }
     }
 
-    private func keypadDigit(_ label: String, action: @escaping () -> Void) -> some View {
+    private func keypadRow(_ labels: [String]) -> some View {
+        HStack(spacing: columnSpacing) {
+            ForEach(labels, id: \.self) { label in
+                digitKey(label) { appendDigit(label) }
+            }
+        }
+    }
+
+    private func digitKey(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 34, weight: .regular))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity)
-                .frame(height: 80)
-                .background {
-                    Circle()
-                        .fill(Color.primary.opacity(0.07))
-                }
+                .font(.system(size: 36, weight: .light))
+                .frame(width: keySize, height: keySize)
+                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PasscodeDigitKeyStyle())
         .disabled(isVerifying)
     }
 
-    private func keypadIcon(_ systemName: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.title2.weight(.regular))
-                .frame(maxWidth: .infinity)
-                .frame(height: 80)
-                .background {
-                    Circle()
-                        .fill(Color.primary.opacity(0.07))
-                }
+    private var deleteKey: some View {
+        Button(action: deleteDigit) {
+            Image(systemName: "delete.left")
+                .font(.system(size: 23, weight: .regular))
+                .frame(width: keySize, height: keySize)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(isVerifying)
+        .buttonStyle(PasscodeDeleteKeyStyle())
+        .disabled(digits.isEmpty || isVerifying)
+        .opacity(digits.isEmpty ? 0.35 : 1)
     }
 
     private func appendDigit(_ digit: String) {
         guard digits.count < maxDigits, !isVerifying else { return }
-        playKeyTap()
+        hapticTick += 1
         errorMessage = nil
         digits.append(digit)
         if digits.count == maxDigits {
@@ -179,7 +185,7 @@ struct PasscodeKeypadView: View {
 
     private func deleteDigit() {
         guard !digits.isEmpty, !isVerifying else { return }
-        playKeyTap()
+        hapticTick += 1
         errorMessage = nil
         digits.removeLast()
     }
@@ -201,17 +207,13 @@ struct PasscodeKeypadView: View {
     }
 
     private func shakeDots() async {
-        let steps: [CGFloat] = [0, -12, 12, -10, 10, -6, 6, 0]
-        for step in steps {
-            shakeOffset = step
-            try? await Task.sleep(for: .milliseconds(45))
+        let offsets: [CGFloat] = [14, -14, 10, -10, 0]
+        for offset in offsets {
+            withAnimation(.easeInOut(duration: 0.08)) {
+                shakeOffset = offset
+            }
+            try? await Task.sleep(for: .milliseconds(80))
         }
-    }
-
-    private func playKeyTap() {
-        #if canImport(UIKit)
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        #endif
     }
 
     private func playErrorFeedback() {
@@ -220,3 +222,40 @@ struct PasscodeKeypadView: View {
         #endif
     }
 }
+
+// MARK: - iOS-style key press styles
+
+private struct PasscodeDigitKeyStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.primary)
+            .background {
+                Circle()
+                    .fill(Color(.secondarySystemFill))
+                    .opacity(configuration.isPressed ? 0.55 : 1)
+            }
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(.easeOut(duration: configuration.isPressed ? 0.08 : 0.16), value: configuration.isPressed)
+    }
+}
+
+private struct PasscodeDeleteKeyStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.primary)
+            .opacity(configuration.isPressed ? 0.45 : 1)
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .animation(.easeOut(duration: configuration.isPressed ? 0.08 : 0.16), value: configuration.isPressed)
+    }
+}
+
+#if DEBUG
+#Preview {
+    PasscodeKeypadView(
+        title: "Enter Passcode",
+        subtitle: "Enter the admin code to continue.",
+        onSubmit: { _ in },
+        onCancel: {}
+    )
+}
+#endif

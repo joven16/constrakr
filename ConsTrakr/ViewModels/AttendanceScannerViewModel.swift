@@ -792,7 +792,6 @@ final class AttendanceScannerViewModel {
             }
 
             guideConditionMet = true
-            reloadEmployees()
             let match = try pipeline.process(pixelBuffer: frame, employees: employees, mirrored: mirrored)
             faceDetected = true
             handleConsensusMatch(match)

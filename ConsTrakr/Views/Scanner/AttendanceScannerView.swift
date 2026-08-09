@@ -104,6 +104,9 @@ struct AttendanceScannerView: View {
             .onDisappear {
                 viewModel.stopCamera()
             }
+            .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.employeesDidChange)) { _ in
+                viewModel.reloadEmployees()
+            }
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceHistoryDidClear)) { _ in
                 viewModel.handleAttendanceHistoryCleared()
             }
