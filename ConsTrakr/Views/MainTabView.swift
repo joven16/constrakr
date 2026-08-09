@@ -9,9 +9,10 @@ struct MainTabView: View {
     @Environment(AppTabRouter.self) private var tabRouter
     @Environment(AppAccessSession.self) private var access
     @Environment(SyncQueue.self) private var syncQueue
+    @AppStorage(AppConstants.UserDefaultsKeys.adminScannerTabEnabled) private var adminScannerTabEnabled = true
 
     private var showsScannerTab: Bool {
-        !access.isAdminUnlocked || ScannerTabSettings.isEnabledForAdmin
+        !access.isAdminUnlocked || adminScannerTabEnabled
     }
 
     var body: some View {

@@ -118,15 +118,15 @@ struct SettingsScannerView: View {
                     }
                 }
 
-                Toggle(FaceScanSettings.settingsLabel(for: .closeUp), isOn: $draft.centerEnabled)
+                Toggle(FaceScanSettings.settingsLabel(for: .closeUp), isOn: $draft.centerEnabled.withToggleBusy())
                     .disabled(isSaving)
-                Toggle(FaceScanSettings.settingsLabel(for: .lookLeft), isOn: $draft.leftEnabled)
+                Toggle(FaceScanSettings.settingsLabel(for: .lookLeft), isOn: $draft.leftEnabled.withToggleBusy())
                     .disabled(isSaving)
-                Toggle(FaceScanSettings.settingsLabel(for: .lookRight), isOn: $draft.rightEnabled)
+                Toggle(FaceScanSettings.settingsLabel(for: .lookRight), isOn: $draft.rightEnabled.withToggleBusy())
                     .disabled(isSaving)
-                Toggle(FaceScanSettings.settingsLabel(for: .lookUp), isOn: $draft.upEnabled)
+                Toggle(FaceScanSettings.settingsLabel(for: .lookUp), isOn: $draft.upEnabled.withToggleBusy())
                     .disabled(isSaving)
-                Toggle(FaceScanSettings.settingsLabel(for: .lookDown), isOn: $draft.downEnabled)
+                Toggle(FaceScanSettings.settingsLabel(for: .lookDown), isOn: $draft.downEnabled.withToggleBusy())
                     .disabled(isSaving)
 
                 if isSaving {

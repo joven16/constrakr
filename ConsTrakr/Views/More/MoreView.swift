@@ -8,6 +8,7 @@ import SwiftUI
 struct MoreView: View {
     @Environment(AppAccessSession.self) private var access
     @State private var showAdminUnlock = false
+    @AppStorage(AppConstants.UserDefaultsKeys.adminScannerTabEnabled) private var adminScannerTabEnabled = true
 
     var body: some View {
         NavigationStack {
@@ -69,7 +70,7 @@ struct MoreView: View {
                         }
                     }
                 }
-                Toggle(isOn: adminScannerTabBinding) {
+                Toggle(isOn: $adminScannerTabEnabled.withToggleBusy()) {
                     Text("Scanner tab")
                 }
                 Button("Lock admin") {
@@ -89,12 +90,5 @@ struct MoreView: View {
                 Text("Operators can register and edit employees for the site shown above. Unlock admin to manage job sites, settings, and delete employees.")
             }
         }
-    }
-
-    private var adminScannerTabBinding: Binding<Bool> {
-        Binding(
-            get: { ScannerTabSettings.isEnabledForAdmin },
-            set: { ScannerTabSettings.isEnabledForAdmin = $0 }
-        )
     }
 }

@@ -79,7 +79,7 @@ struct SettingsAdvancedView: View {
             Section("Diagnostics") {
                 LabeledContent("Mode", value: "Offline-first")
                 LabeledContent("Vision", value: "Face landmarks + head pose")
-                Toggle("Keep debug camera frames", isOn: $viewModel.uploadRawFramesEnabled)
+                Toggle("Keep debug camera frames", isOn: $viewModel.uploadRawFramesEnabled.withToggleBusy())
             }
         }
         .navigationTitle("Advanced")

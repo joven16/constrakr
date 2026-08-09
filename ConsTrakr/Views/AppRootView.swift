@@ -23,6 +23,7 @@ struct AppRootView: View {
             .environment(syncQueue)
             .environment(tabRouter)
             .preferredColorScheme(AppTheme(rawValue: appThemeRaw)?.colorScheme)
+            .toggleBusyOverlay()
             .onAppear {
                 let context = modelContainer.mainContext
                 DataController.seedMockDataIfNeeded(context: context)

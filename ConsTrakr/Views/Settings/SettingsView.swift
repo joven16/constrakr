@@ -126,13 +126,13 @@ struct SettingsView: View {
 
     private var syncSection: some View {
         Section {
-            Toggle("Auto sync", isOn: $viewModel.autoSyncEnabled)
+            Toggle("Auto sync", isOn: $viewModel.autoSyncEnabled.withToggleBusy())
             if viewModel.autoSyncEnabled {
                 Stepper(value: $viewModel.syncIntervalMinutes, in: SyncSettings.minIntervalMinutes...SyncSettings.maxIntervalMinutes) {
                     Text("Every \(viewModel.syncIntervalMinutes) min")
                 }
             }
-            Toggle("Photos & ID on Wi‑Fi only", isOn: $viewModel.uploadLargeFilesOnWiFiOnly)
+            Toggle("Photos & ID on Wi‑Fi only", isOn: $viewModel.uploadLargeFilesOnWiFiOnly.withToggleBusy())
             if viewModel.isAdminAuthenticated {
                 Button("Full sync now") {
                     Task { await viewModel.syncNowFull() }
@@ -170,7 +170,7 @@ struct SettingsView: View {
         } header: {
             Text("Sync Account")
         } footer: {
-            Text("Use your sync_admin credentials. Required for sync, restore, and cloud backup.")
+            Text("Use ConsTrakr sync credentials from IMS (superadmin can create more under Profile or User Management). Required for sync, restore, and cloud backup.")
         }
     }
 

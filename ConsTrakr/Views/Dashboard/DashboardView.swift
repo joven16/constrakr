@@ -58,10 +58,10 @@ struct DashboardView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Image(systemName: viewModel.isOnline ? "wifi" : "wifi.slash")
+                    Image(systemName: connectionIconName)
                         .foregroundStyle(viewModel.isOnline ? .green : .secondary)
                         .font(.subheadline)
-                        .accessibilityLabel(viewModel.isOnline ? "Online" : "Offline")
+                        .accessibilityLabel(connectionAccessibilityLabel)
                 }
             }
             .onAppear {
@@ -79,10 +79,21 @@ struct DashboardView: View {
             .onReceive(NotificationCenter.default.publisher(for: AppAccessSession.sessionDidChangeNotification)) { _ in
                 viewModel.refreshDebounced()
             }
+            .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.networkConnectivityDidChange)) { _ in
+                viewModel.refreshDebounced()
+            }
             .refreshable {
                 await viewModel.syncNow()
             }
         }
+    }
+
+    private var connectionIconName: String {
+        NetworkMonitor.shared.statusSymbolName
+    }
+
+    private var connectionAccessibilityLabel: String {
+        NetworkMonitor.shared.statusAccessibilityLabel
     }
 
     private var noSitePrompt: some View {
@@ -236,7 +247,7 @@ struct DashboardView: View {
 
     private var todayMetricsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Today", systemImage: "chart.bar.fill")
+            Label("Today", systemImage: "clock.fill")
                 .font(.headline)
 
             if let site = viewModel.selectedSiteSummary, site.assignedCount > 0, let percent = site.coveragePercent {

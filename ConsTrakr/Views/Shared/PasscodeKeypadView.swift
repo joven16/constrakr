@@ -66,20 +66,27 @@ struct PasscodeKeypadView: View {
                             .frame(minHeight: 22)
                     }
 
-                    VStack(spacing: 20) {
-                        keypad
-                            .fixedSize(horizontal: true, vertical: true)
-
-                        if isVerifying {
-                            ProgressView()
-                        }
-                    }
+                    keypad
+                        .fixedSize(horizontal: true, vertical: true)
                 }
                 .frame(maxWidth: .infinity)
 
                 Spacer(minLength: 0)
             }
+
+            if isVerifying {
+                ZStack {
+                    Color.black.opacity(0.18)
+                        .ignoresSafeArea()
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(.cyan)
+                }
+                .transition(.opacity)
+                .allowsHitTesting(true)
+            }
         }
+        .animation(.easeInOut(duration: 0.15), value: isVerifying)
         .interactiveDismissDisabled(isVerifying)
         .sensoryFeedback(.impact(weight: .light), trigger: hapticTick)
     }

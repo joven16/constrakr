@@ -129,7 +129,7 @@ struct JobSiteEditorView: View {
 
             if isEditing {
                 Section {
-                    Toggle("Default site for attendance checks", isOn: $isDefaultSite)
+                    Toggle("Default site for attendance checks", isOn: $isDefaultSite.withToggleBusy())
                 } footer: {
                     Text("The default site is used when an employee has no assigned site, and to gate the scanner tab.")
                 }

@@ -25,6 +25,7 @@ final class DTRViewModel {
 
     struct DTRRow: Identifiable {
         let id: UUID
+        let employee: Employee
         let employeeName: String
         let employeeCode: String
         let timeIn: Date?
@@ -134,6 +135,7 @@ final class DTRViewModel {
                 guard let acc = byEmployee[employee.id] else { return nil }
                 return DTRRow(
                     id: employee.id,
+                    employee: employee,
                     employeeName: acc.name,
                     employeeCode: acc.code,
                     timeIn: acc.timeIn,

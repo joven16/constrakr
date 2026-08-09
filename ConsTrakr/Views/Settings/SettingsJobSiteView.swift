@@ -24,7 +24,7 @@ struct SettingsJobSiteView: View {
                 Toggle("Require on-site GPS", isOn: Binding(
                     get: { viewModel.siteGeofenceEnabled },
                     set: { requestGeofenceChange(to: $0) }
-                ))
+                ).withToggleBusy())
             } footer: {
                 Text("When on, the scanner tab is blocked until the phone is at the default job site. Turning this on or off requires a 6-digit admin code.")
             }

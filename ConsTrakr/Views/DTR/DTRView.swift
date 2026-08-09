@@ -13,6 +13,8 @@ struct DTRView: View {
     @Environment(SyncQueue.self) private var syncQueue
     @Environment(AppAccessSession.self) private var access
     @State private var viewModel = DTRViewModel()
+    /// Recreate compact DatePicker after selection so the calendar popover dismisses.
+    @State private var datePickerIdentity = UUID()
 
     var body: some View {
         NavigationStack {
@@ -45,6 +47,7 @@ struct DTRView: View {
                 viewModel.refreshDebounced()
             }
             .onChange(of: viewModel.selectedDate) { _, _ in
+                datePickerIdentity = UUID()
                 viewModel.refresh()
             }
             .onReceive(NotificationCenter.default.publisher(for: AppConstants.Notifications.attendanceHistoryDidClear)) { _ in
@@ -174,6 +177,7 @@ struct DTRView: View {
             )
             .labelsHidden()
             .datePickerStyle(.compact)
+            .id(datePickerIdentity)
         }
         .padding(.horizontal)
         .padding(.top, 6)
@@ -186,6 +190,8 @@ private struct DTRCompactRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
+            EmployeeAvatarView(employee: row.employee, size: 28)
+
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.employeeName)
                     .font(.subheadline.weight(.semibold))

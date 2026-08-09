@@ -11,7 +11,7 @@ struct SettingsSupervisorPINView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Require supervisor PIN", isOn: $viewModel.supervisorPINEnabled)
+                Toggle("Require supervisor PIN", isOn: $viewModel.supervisorPINEnabled.withToggleBusy())
             } footer: {
                 Text("When enabled, Time In / Time Out asks for a supervisor PIN before the camera scan.")
             }
