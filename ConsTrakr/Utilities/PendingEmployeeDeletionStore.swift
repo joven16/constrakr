@@ -2,7 +2,7 @@
 //  PendingEmployeeDeletionStore.swift
 //  ConsTrakr
 //
-//  Queues IMS soft-deletes when an employee is removed on device while offline.
+//  Queues server soft-deletes when an employee is removed on device while offline.
 //
 
 import Foundation

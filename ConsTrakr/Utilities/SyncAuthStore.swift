@@ -2,7 +2,7 @@
 //  SyncAuthStore.swift
 //  ConsTrakr
 //
-//  Persists IMS admin JWT for auto-sync across app launches.
+//  Persists sync JWT for auto-sync across app launches.
 //
 
 import Foundation

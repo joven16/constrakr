@@ -2,7 +2,7 @@
 //  APIService.swift
 //  ConsTrakr
 //
-//  HTTPS client for IMS `/constrakr-api` sync + restore.
+//  HTTPS client for `/constrakr-api` sync + restore.
 //
 
 import Foundation
@@ -109,7 +109,7 @@ actor APIService {
             throw NetworkError.serverError(
                 statusCode: 401,
                 message: APIDecoding.apiErrorMessage(from: data)
-                    ?? "Wrong sync admin username or password."
+                    ?? "Invalid user"
             )
         }
         try validate(data: data, response: response)

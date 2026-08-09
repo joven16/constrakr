@@ -437,7 +437,7 @@ final class AttendanceScannerViewModel {
         endSession(status: "Choose Time In or Time Out to begin.")
     }
 
-    /// Rebuilds session punch cache when IMS voids remove local records.
+    /// Rebuilds session punch cache when server voids remove local records.
     func handleAttendanceDidChange() {
         reloadRecordedKeysToday()
     }

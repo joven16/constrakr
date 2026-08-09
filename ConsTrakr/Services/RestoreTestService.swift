@@ -48,7 +48,7 @@ enum RestoreTestService {
         )
     }
 
-    /// Removes all local employees, attendance, embeddings, and JPEG files. Does not call IMS.
+    /// Removes all local employees, attendance, embeddings, and JPEG files. Does not call the server.
     static func wipeLocalData(context: ModelContext) throws {
         let employees = try context.fetch(FetchDescriptor<Employee>())
         for employee in employees {

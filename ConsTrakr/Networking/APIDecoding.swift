@@ -2,13 +2,13 @@
 //  APIDecoding.swift
 //  ConsTrakr
 //
-//  Flexible JSON decoding for IMS `/constrakr-api` responses.
+//  Flexible JSON decoding for `/constrakr-api` responses.
 //
 
 import Foundation
 
 enum APIDecoding {
-    /// Decodes IMS list payloads whether they are a bare array or wrapped (`employees`, `face_embeddings`, etc.).
+    /// Decodes API list payloads whether they are a bare array or wrapped (`employees`, `face_embeddings`, etc.).
     static func decodeFlexibleList<T: Decodable>(
         _ type: T.Type,
         from data: Data,
@@ -246,7 +246,7 @@ enum APIDecoding {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// IMS often returns numeric primary keys as JSON integers instead of strings.
+    /// The API often returns numeric primary keys as JSON integers instead of strings.
     static func decodeFlexibleIdString<K: CodingKey>(
         from container: KeyedDecodingContainer<K>,
         keys: [K]
@@ -264,7 +264,7 @@ enum APIDecoding {
         return nil
     }
 
-    /// Parses IMS/Django timestamps (`…Z`, `…+00:00`, fractional seconds).
+    /// Parses server/Django timestamps (`…Z`, `…+00:00`, fractional seconds).
     static func parseISO8601(_ value: String?) -> Date? {
         guard var string = value?.trimmingCharacters(in: .whitespacesAndNewlines), !string.isEmpty else {
             return nil
@@ -287,7 +287,7 @@ enum APIDecoding {
         return nil
     }
 
-    /// Parses `{ "access_token": "...", "expires_in": 86400 }` from IMS login.
+    /// Parses `{ "access_token": "...", "expires_in": 86400 }` from sync login.
     static func parseLoginResponse(from data: Data) -> AdminLoginResponse? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
@@ -307,7 +307,7 @@ enum APIDecoding {
         return AdminLoginResponse(accessToken: token, expiresIn: expiresIn)
     }
 
-    /// Reads `{ "error": "..." }` from IMS API JSON bodies.
+    /// Reads `{ "error": "..." }` from the server API JSON bodies.
     static func apiErrorMessage(from data: Data?) -> String? {
         guard let data, !data.isEmpty,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -320,11 +320,11 @@ enum APIDecoding {
     static func loginErrorMessage(code: String) -> String {
         switch code {
         case "invalid_credentials":
-            return "Wrong sync admin username or password. Use sync_admin (not the web dashboard login). Create it on the server with: python manage.py create_constrakr_admin sync_admin 'your-password'"
+            return "Invalid user"
         case "username_and_password_required":
-            return "Username and password are required."
+            return "Invalid user"
         default:
-            return code.replacingOccurrences(of: "_", with: " ")
+            return "Invalid user"
         }
     }
 }

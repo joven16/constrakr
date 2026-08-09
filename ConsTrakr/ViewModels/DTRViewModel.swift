@@ -153,7 +153,7 @@ final class DTRViewModel {
         }
     }
 
-    /// Upload pending punches and pull IMS corrections for the selected DTR day.
+    /// Upload pending punches and pull server corrections for the selected DTR day.
     func syncNow() async {
         await syncQueue?.syncNow(mode: .quick, scope: .attendance, dtrFocusDate: selectedDate)
         refresh()

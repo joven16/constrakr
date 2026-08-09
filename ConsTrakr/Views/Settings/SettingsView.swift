@@ -161,16 +161,30 @@ struct SettingsView: View {
                 TextField("Admin username", text: $viewModel.adminUsername)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .disabled(viewModel.isSigningIn)
                 SecureField("Password", text: $viewModel.adminPassword)
-                Button("Sign in") {
-                    Task { await viewModel.signInAdmin() }
+                    .disabled(viewModel.isSigningIn)
+                if viewModel.isSigningIn {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .tint(Color(.systemGray))
+                        Spacer()
+                    }
+                } else {
+                    Button("Sign in") {
+                        Task { await viewModel.signInAdmin() }
+                    }
+                    .disabled(viewModel.adminUsername.isEmpty || viewModel.adminPassword.isEmpty)
                 }
-                .disabled(viewModel.adminUsername.isEmpty || viewModel.adminPassword.isEmpty)
+                if let signInError = viewModel.signInError {
+                    Text(signInError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
             }
         } header: {
             Text("Sync Account")
-        } footer: {
-            Text("Use ConsTrakr sync credentials from IMS (superadmin can create more under Profile or User Management). Required for sync, restore, and cloud backup.")
         }
     }
 

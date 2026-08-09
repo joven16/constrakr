@@ -142,6 +142,8 @@ final class SettingsViewModel {
     private(set) var isOnline = false
     private(set) var isAdminAuthenticated = false
     private(set) var statusMessage: String?
+    private(set) var isSigningIn = false
+    private(set) var signInError: String?
 
     private(set) var isTestingRestore = false
     var restoreTestMessage: String?
@@ -314,15 +316,21 @@ final class SettingsViewModel {
     }
 
     func signInAdmin() async {
+        guard !isSigningIn else { return }
+        isSigningIn = true
+        signInError = nil
+        defer { isSigningIn = false }
+
         await APIService.shared.updateBaseURL(apiBaseURL)
         do {
             try await AdminSession.shared.signIn(username: adminUsername, password: adminPassword)
             adminPassword = ""
+            signInError = nil
             refresh()
             await saveDeviceName(DeviceStore.syncName)
             statusMessage = "Signed in. Sync and restore are enabled."
         } catch {
-            statusMessage = error.localizedDescription
+            signInError = "Invalid user"
         }
     }
 
@@ -373,10 +381,10 @@ final class SettingsViewModel {
         }
     }
 
-    /// Wipes local roster/DTR/enrollment data, then downloads everything from IMS (IMS unchanged).
+    /// Wipes local roster/DTR/enrollment data, then downloads everything from the server (server unchanged).
     func testRestoreFromCloud() async {
         guard AdminSession.shared.isAuthenticated else {
-            restoreTestMessage = "Sign in as sync admin first."
+            restoreTestMessage = "Sign in under Sync Account first."
             showRestoreTestAlert = true
             return
         }

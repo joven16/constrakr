@@ -22,7 +22,7 @@ final class Employee {
     var position: String
     /// Job site this employee must be at for Time In / Time Out.
     var assignedSiteId: UUID?
-    /// Denormalized from IMS sync — used when the local site catalog is stale.
+    /// Denormalized from the server sync — used when the local site catalog is stale.
     var assignedSiteName: String = ""
     var assignedSiteLocation: String = ""
     /// Encrypted JSON blob of `[FaceEmbedding]` for fast local matching after decrypt.

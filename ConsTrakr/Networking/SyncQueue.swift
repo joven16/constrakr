@@ -13,7 +13,7 @@ import SwiftData
 @Observable
 final class SyncQueue {
     private(set) var isSyncing = false
-    /// Last time a sync pass completed successfully (data reached IMS or nothing pending).
+    /// Last time a sync pass completed successfully (data reached the server or nothing pending).
     private(set) var lastSyncDate: Date?
     /// Last time a sync was attempted (success or failure).
     private(set) var lastSyncAttemptDate: Date?
@@ -149,11 +149,11 @@ final class SyncQueue {
         }
 
         guard AdminSession.shared.isAuthenticated else {
-            lastError = "Sign in under Settings → Sync account before syncing."
+            lastError = "Sign in under Settings → Sync Account"
             return
         }
         guard await APIService.shared.hasAuthToken() else {
-            lastError = "Sign in under Settings → Sync account before syncing."
+            lastError = "Sign in under Settings → Sync Account"
             AdminSession.shared.handleUnauthorized()
             return
         }
@@ -263,8 +263,8 @@ final class SyncQueue {
         }
     }
 
-    /// Compare local roster vs IMS without uploading.
-    func checkEmployeesOnIMS() async throws -> EmployeeSyncReport {
+    /// Compare local roster vs the server without uploading.
+    func checkEmployeesOnServer() async throws -> EmployeeSyncReport {
         guard let context else { throw NetworkError.invalidResponse }
         await AdminSession.shared.restorePersistedSession()
         return try await EmployeeSyncChecker.check(context: context, repair: true)

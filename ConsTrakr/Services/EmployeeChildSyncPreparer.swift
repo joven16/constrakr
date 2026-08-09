@@ -3,7 +3,7 @@
 //  ConsTrakr
 //
 //  Ensures face embedding / enrollment photo sync rows exist and are linked
-//  to the parent employee's IMS id before upload.
+//  to the parent employee's server id before upload.
 //
 
 import Foundation
@@ -11,7 +11,7 @@ import SwiftData
 
 @MainActor
 enum EmployeeChildSyncPreparer {
-    /// Backfill and relink child sync records for every employee already on IMS.
+    /// Backfill and relink child sync records for every employee already on the server.
     static func prepareAll(context: ModelContext, persist: Bool = true) throws {
         let empRepo = EmployeeRepository(context: context)
         for employee in try empRepo.fetchAll() {

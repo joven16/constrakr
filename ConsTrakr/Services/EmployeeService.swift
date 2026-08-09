@@ -191,7 +191,7 @@ final class EmployeeService {
         NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
     }
 
-    /// Pull IMS profile edits before attendance validation, without undoing local changes.
+    /// Pull server profile edits before attendance validation, without undoing local changes.
     func refreshProfileFromServer(_ employee: Employee) async {
         guard NetworkMonitor.shared.isConnected else { return }
         guard APIDecoding.normalizedServerId(employee.serverId) != nil else { return }

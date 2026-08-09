@@ -26,7 +26,7 @@ def add_title_page(doc: Document) -> None:
     note = doc.add_paragraph()
     note.alignment = WD_ALIGN_PARAGRAPH.CENTER
     nr = note.add_run(
-        "Covers IMS People (web), ConsTrakr iOS app features, sync API, "
+        "Covers Web admin (People), ConsTrakr iOS app features, sync API, "
         "and a phased plan to recreate the field app on Android."
     )
     nr.font.size = Pt(11)
@@ -76,7 +76,7 @@ def build_document() -> Document:
     doc.add_heading("Document Contents", level=1)
     for item in [
         "1. System Overview",
-        "2. Web (People / IMS) Features",
+        "2. Web (People admin) Features",
         "3. ConsTrakr App Features (iOS reference)",
         "4. Constrakr Sync API",
         "5. Android Rebuild — Phase by Phase",
@@ -92,14 +92,14 @@ def build_document() -> Document:
     doc.add_heading("1. System Overview", level=1)
     doc.add_paragraph(
         "ConsTrakr is an offline-first attendance and roster system. "
-        "The IMS People module (web) is the admin back-office. "
+        "The People web module is the admin back-office. "
         "The ConsTrakr mobile app is the field device for face-based Time In/Out. "
         "Both sides sync through the Constrakr REST API at /constrakr-api/."
     )
     add_table(doc, ["Layer", "Role"], [
         ["Web (People)", "Admin: roster, DTR, payroll, reports, device assignment, void passcode"],
         ["App (ConsTrakr)", "Field: face attendance, offline roster, job sites, sync"],
-        ["API", "Sync bridge; JWT auth separate from IMS session login"],
+        ["API", "Sync bridge; JWT auth separate from web session login"],
     ])
     doc.add_paragraph(
         "Shared security: a user's 6-digit void passcode (Profile → Edit Profile on web) "
@@ -109,7 +109,7 @@ def build_document() -> Document:
     doc.add_page_break()
 
     # ── 2. Web ──
-    doc.add_heading("2. Web (People / IMS) Features", level=1)
+    doc.add_heading("2. Web (People admin) Features", level=1)
     doc.add_paragraph("Base path: /people/  |  Access: can_view_people_pages  |  Data scoped by user group")
 
     doc.add_heading("2.1 Navigation", level=2)
@@ -161,7 +161,7 @@ def build_document() -> Document:
     doc.add_heading("2.5 Devices", level=2)
     for b in [
         "List registered ConsTrakr devices (name, local ID, app version, last seen, Active/Blocked status)",
-        "Assign one or more IMS users — any assigned user's 6-digit admin code unlocks device",
+        "Assign one or more web users — any assigned user's 6-digit admin code unlocks device",
         "Admin code readiness indicator per user",
         "Edit device name",
         "Remote access: Block device (optional reason) — stops scan, CRUD, and sync on app",
@@ -284,7 +284,7 @@ def build_document() -> Document:
         ["Appearance", "System / Light / Dark theme"],
         ["Status", "Network, pending uploads, last sync, progress"],
         ["Sync", "Auto sync, interval 3–60 min, Wi-Fi-only uploads, full sync"],
-        ["Sync account", "sync_admin JWT sign-in/out"],
+        ["Sync account", "sync account JWT sign-in/out"],
         ["Scanner", "Match threshold, liveness presets, per-pose toggles"],
         ["Job sites & GPS", "Geofence toggle + default site (admin code gates)"],
         ["Supervisor PIN", "Optional 4–12 digit PIN before punch (local hash)"],
@@ -336,7 +336,7 @@ def build_document() -> Document:
     doc.add_paragraph("Base: {host}/constrakr-api  |  Auth: Bearer JWT (except health + login)")
     add_table(doc, ["Method", "Path", "Purpose"], [
         ["GET", "/health", "Health + server time"],
-        ["POST", "/auth/admin/login", "JWT (sync_admin)"],
+        ["POST", "/auth/admin/login", "JWT (sync account)"],
         ["GET/POST", "/employees", "Roster sync (delta: updated_since)"],
         ["GET/POST", "/employees/check", "Existence check"],
         ["PUT/DELETE", "/employees/{id}", "Update / soft-delete"],
@@ -395,7 +395,7 @@ def build_document() -> Document:
             ],
             "api": ["GET /health", "POST /auth/admin/login"],
             "storage": ["settings.apiBaseURL", "SyncAuthStore equivalent"],
-            "exit": "User can sign in as sync_admin and see connection status",
+            "exit": "User can sign in with a sync account and see connection status",
         },
         {
             "title": "Phase 3 — Job Sites (Local + Sync)",
@@ -539,7 +539,7 @@ def build_document() -> Document:
 
     add_mermaid_block(doc, "6.1 System Context", """
 flowchart TB
-    subgraph Web["IMS People (Web)"]
+    subgraph Web["People (Web)"]
         W1[Employees / DTR / Payroll]
         W2[Job Sites / Devices]
         W3[Void Passcode Setup]
@@ -632,7 +632,7 @@ sequenceDiagram
     participant User
     participant App
     participant API as verify-admin-code
-    participant Web as IMS Device Assignment
+    participant Web as Web Device Assignment
 
     Web->>App: assigned_users + adminCodeRequired on sync
     User->>App: Change default site / GPS / Edit employee

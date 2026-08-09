@@ -18,7 +18,7 @@ struct JobSite: Codable, Identifiable, Equatable, Hashable {
     var longitude: Double
     /// Allowed punch radius from the pinned coordinate.
     var radiusMeters: Double
-    /// Used for last-write-wins sync with IMS.
+    /// Used for last-write-wins sync with the server.
     var updatedAt: Date
 
     enum CodingKeys: String, CodingKey {

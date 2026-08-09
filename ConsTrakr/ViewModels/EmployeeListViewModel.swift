@@ -80,7 +80,7 @@ final class EmployeeListViewModel {
         cloudReport?.item(for: employeeId)
     }
 
-    /// Manual sync — check IMS, upload employees/embeddings/DTR, refresh status.
+    /// Manual sync — check the server, upload employees/embeddings/DTR, refresh status.
     func syncNow() async {
         guard syncQueue != nil else {
             cloudCheckErrorMessage = "Sync is not ready yet. Try again."
@@ -97,7 +97,7 @@ final class EmployeeListViewModel {
         cloudCheckErrorMessage = syncQueue?.lastError
     }
 
-    /// IMS status check only (no upload).
+    /// server status check only (no upload).
     func checkCloudOnly() async {
         guard let modelContext else {
             cloudCheckErrorMessage = "Employee list is not ready yet. Try again."
@@ -111,7 +111,7 @@ final class EmployeeListViewModel {
 
         do {
             if let syncQueue {
-                cloudReport = try await syncQueue.checkEmployeesOnIMS()
+                cloudReport = try await syncQueue.checkEmployeesOnServer()
             } else {
                 cloudReport = try await EmployeeSyncChecker.check(context: modelContext, repair: true)
             }
@@ -122,7 +122,7 @@ final class EmployeeListViewModel {
         }
     }
 
-    /// Check IMS status/dates, then run sync (same as manual Sync Now).
+    /// Check the server status/dates, then run sync (same as manual Sync Now).
     func checkAndSyncCloud() async {
         await syncNow()
     }
@@ -135,7 +135,7 @@ final class EmployeeListViewModel {
         cloudReport = report
     }
 
-    /// Refresh IMS badges when signed in — avoids stale "Not checked" on every row.
+    /// Refresh server badges when signed in — avoids stale "Not checked" on every row.
     func checkCloudIfNeeded() async {
         guard cloudReport == nil else { return }
         guard !isCheckingCloud else { return }

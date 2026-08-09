@@ -226,7 +226,7 @@ enum JobSiteStore {
     static func delete(id: UUID, recordPendingSync: Bool = true) {
         clearPendingUpload(id: id)
 
-        // Only queue a server delete when IMS has seen this site before.
+        // Only queue a server delete when the server has seen this site before.
         if recordPendingSync, lastKnownRemoteIds().contains(id) {
             var pending = pendingDeleteIds
             if !pending.contains(id) {

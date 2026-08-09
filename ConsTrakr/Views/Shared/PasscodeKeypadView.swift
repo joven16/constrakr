@@ -80,7 +80,7 @@ struct PasscodeKeypadView: View {
                         .ignoresSafeArea()
                     ProgressView()
                         .controlSize(.large)
-                        .tint(.cyan)
+                        .tint(Color(.systemGray))
                 }
                 .transition(.opacity)
                 .allowsHitTesting(true)

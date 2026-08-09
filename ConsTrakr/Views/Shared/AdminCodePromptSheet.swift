@@ -29,6 +29,6 @@ struct AdminCodePromptSheet: View {
             let joined = labels.joined(separator: ", ")
             return "\(message)\n\nUse the 6-digit admin code for any assigned user: \(joined)."
         }
-        return "\(message)\n\nUse the 6-digit admin code from a user assigned to this device on the web dashboard."
+        return "\(message)\n\nUse the 6-digit admin code from a user assigned to this device on the web."
     }
 }

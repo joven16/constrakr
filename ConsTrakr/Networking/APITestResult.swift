@@ -39,12 +39,12 @@ struct APITestResult {
             lines.append("API ready for sync.")
         } else if !healthOK {
             lines.append("Fix health endpoint first (GET, no auth).")
-        } else if loginMessage.contains("invalid_credentials") {
-            lines.append("Wrong username or password for sync_admin.")
+        } else if loginMessage.contains("invalid_credentials") || loginMessage.localizedCaseInsensitiveContains("invalid user") {
+            lines.append("Wrong username or password for sync account.")
         } else if loginMessage.contains("Enter username") || loginMessage.contains("Saved session") {
-            lines.append("Sign in under Sync account, or enter credentials in Server URL.")
+            lines.append("Sign in under Sync Account, or enter credentials in Server URL.")
         } else {
-            lines.append("Check sync_admin username/password.")
+            lines.append("Check sync account username/password.")
         }
 
         return lines.joined(separator: "\n")

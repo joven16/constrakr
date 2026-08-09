@@ -2,20 +2,20 @@
 //  EmployeeSyncChecker.swift
 //  ConsTrakr
 //
-//  Compares local employees against GET /constrakr-api/employees on IMS.
+//  Compares local employees against GET /constrakr-api/employees on the server.
 //
 
 import Foundation
 import SwiftData
 
 enum EmployeeCloudStatus: String {
-    case onIMS = "On server"
+    case onServer = "On server"
     case needsUpload = "Not on server"
     case notChecked = "Not checked"
 
     var colorName: String {
         switch self {
-        case .onIMS: return "green"
+        case .onServer: return "green"
         case .needsUpload: return "orange"
         case .notChecked: return "secondary"
         }
@@ -23,7 +23,7 @@ enum EmployeeCloudStatus: String {
 
     var displayName: String {
         switch self {
-        case .onIMS: return "On server"
+        case .onServer: return "On server"
         case .needsUpload: return "Not on server"
         case .notChecked: return "Not checked"
         }
@@ -45,7 +45,7 @@ struct EmployeeSyncStatusItem: Identifiable {
 
     var imsDateLine: String {
         switch status {
-        case .onIMS:
+        case .onServer:
             return imsUpdatedAt.map { "Server \($0.attendanceDisplay)" } ?? "On server"
         case .needsUpload:
             return "Local \(localUpdatedAt.attendanceDisplay)"
@@ -60,7 +60,7 @@ struct EmployeeSyncStatusItem: Identifiable {
 
 struct EmployeeSyncReport {
     let localTotal: Int
-    let confirmedOnIMS: Int
+    let confirmedOnServer: Int
     let needsUpload: Int
     let remoteTotal: Int
     let remoteRawCount: Int
@@ -70,7 +70,7 @@ struct EmployeeSyncReport {
     let items: [EmployeeSyncStatusItem]
     let checkedAt: Date
     let remoteEmployeeCodes: [String]
-    /// Set when IMS could not be queried (offline, not signed in, etc.).
+    /// Set when the server could not be queried (offline, not signed in, etc.).
     let statusNote: String?
 
     var summaryLine: String {
@@ -78,9 +78,9 @@ struct EmployeeSyncReport {
             return statusNote
         }
         if remoteSkippedDecode > 0 {
-            return "\(confirmedOnIMS)/\(localTotal) on server · \(remoteSkippedDecode) server row(s) unreadable"
+            return "\(confirmedOnServer)/\(localTotal) on server · \(remoteSkippedDecode) server row(s) unreadable"
         }
-        return "\(confirmedOnIMS)/\(localTotal) on server · \(remoteTotal) on server · checked \(checkedAt.attendanceDisplay)"
+        return "\(confirmedOnServer)/\(localTotal) on server · \(remoteTotal) on server · checked \(checkedAt.attendanceDisplay)"
     }
 
     func status(for employeeId: UUID) -> EmployeeCloudStatus {
@@ -94,7 +94,7 @@ struct EmployeeSyncReport {
 
 @MainActor
 enum EmployeeSyncChecker {
-    /// Pulls IMS roster and marks each local employee as on IMS or needs upload.
+    /// Pulls server roster and marks each local employee as on the server or needs upload.
     /// When `repair` is true, links missing server ids and clears phantom local ids.
     /// Pass `preloadedParsed` to reuse a roster already fetched during sync (avoids duplicate GET).
     static func check(
@@ -116,7 +116,7 @@ enum EmployeeSyncChecker {
             if !isOnline {
                 statusNote = "You're offline — pull down to sync when connected."
             } else if !AdminSession.shared.isAuthenticated || !hasToken {
-                statusNote = "Sign in under Settings → Sync account, then pull down to sync."
+                statusNote = "Sign in under Settings → Sync Account"
             } else {
                 statusNote = "Could not reach the server — pull down to try again."
             }
@@ -138,7 +138,7 @@ enum EmployeeSyncChecker {
             let needs = items.filter { $0.status == .needsUpload }.count
             return EmployeeSyncReport(
                 localTotal: local.count,
-                confirmedOnIMS: items.filter { $0.status == .onIMS }.count,
+                confirmedOnServer: items.filter { $0.status == .onServer }.count,
                 needsUpload: needs,
                 remoteTotal: 0,
                 remoteRawCount: 0,
@@ -182,7 +182,7 @@ enum EmployeeSyncChecker {
             }
 
             if let remoteDTO {
-                status = .onIMS
+                status = .onServer
                 imsUpdatedAt = remoteDTO.updatedAt
                 confirmed += 1
 
@@ -235,7 +235,7 @@ enum EmployeeSyncChecker {
 
         return EmployeeSyncReport(
             localTotal: local.count,
-            confirmedOnIMS: confirmed,
+            confirmedOnServer: confirmed,
             needsUpload: needsUpload,
             remoteTotal: index.allEmployees.count,
             remoteRawCount: parsed.rawCount,
@@ -294,7 +294,7 @@ enum EmployeeSyncChecker {
 
         let localCodes = local.map(\.employeeCode).sorted()
         if remoteTotal == 0 {
-            return "Server returned 0 employees to the phone. Sign in, tap Sync Now, or confirm codes match the web dashboard (\(localCodes.joined(separator: ", ")))."
+            return "Server returned 0 employees to the phone. Sign in, tap Sync Now, or confirm codes match the web (\(localCodes.joined(separator: ", ")))."
         }
 
         let remoteNormalized = Set(remoteCodes.map { APIDecoding.normalizeEmployeeCode($0) })

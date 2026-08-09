@@ -2,7 +2,7 @@
 //  AdminSession.swift
 //  ConsTrakr
 //
-//  IMS admin auth for sync + cloud restore (`POST /constrakr-api/auth/admin/login`).
+//  Server sync auth for sync + cloud restore (`POST /constrakr-api/auth/admin/login`).
 //
 
 import Foundation

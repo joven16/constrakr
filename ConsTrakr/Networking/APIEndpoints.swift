@@ -227,7 +227,7 @@ struct EmployeeDTO: Codable, Identifiable {
         self.createdAt = createdAt
     }
 
-    /// Builds sync payload including denormalized job site labels for IMS display.
+    /// Builds sync payload including denormalized job site labels for web display.
     static func fromLocalEmployee(_ employee: Employee, serverId: String?) -> EmployeeDTO {
         let catalog = JobSiteStore.syncFields(for: employee.assignedSiteId)
         let siteNameSnapshot = employee.assignedSiteName.trimmingCharacters(in: .whitespacesAndNewlines)

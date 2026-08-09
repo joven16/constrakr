@@ -2,7 +2,7 @@
 //  IdDocumentType.swift
 //  ConsTrakr
 //
-//  Government ID types aligned with IMS rentals ID_TYPE_CHOICES.
+//  Government ID types aligned with the server rentals ID_TYPE_CHOICES.
 //
 
 import Foundation

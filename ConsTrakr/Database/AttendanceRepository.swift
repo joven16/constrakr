@@ -96,7 +96,7 @@ final class AttendanceRepository {
         return try context.fetch(descriptor).first
     }
 
-    /// Resolves a local punch from IMS void payloads (server id, local id, or timestamp match).
+    /// Resolves a local punch from server void payloads (server id, local id, or timestamp match).
     func fetchForVoidReconcile(
         serverId: String?,
         localId: UUID,

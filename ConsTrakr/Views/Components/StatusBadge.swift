@@ -32,14 +32,14 @@ struct CloudStatusBadge: View {
 
     private var foregroundColor: Color {
         switch status {
-        case .onIMS: return .green
+        case .onServer: return .green
         case .needsUpload: return .orange
         case .notChecked: return .secondary
         }
     }
 }
 
-/// Compact list indicator: check when on IMS and synced, sync arrow when pending/upload needed.
+/// Compact list indicator: check when on the server and synced, sync arrow when pending/upload needed.
 struct EmployeeSyncIndicator: View {
     let cloudStatus: EmployeeCloudStatus
     let localStatus: SyncStatus
@@ -65,7 +65,7 @@ struct EmployeeSyncIndicator: View {
     }
 
     var isUpToDate: Bool {
-        cloudStatus == .onIMS && localStatus == .synced
+        cloudStatus == .onServer && localStatus == .synced
     }
 
     private var syncTint: Color {

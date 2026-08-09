@@ -57,7 +57,7 @@ final class FaceEnrollmentPhotoRepository {
         return stuck.count
     }
 
-    /// Re-queue poses that have JPEG on device but are marked synced locally while IMS has no image.
+    /// Re-queue poses that have JPEG on device but are marked synced locally while the server has no image.
     func requeueForMissingRemoteUpload(
         employeeLocalId: UUID,
         existingRemotePosesWithJPEG: Set<String>

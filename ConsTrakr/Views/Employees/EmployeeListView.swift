@@ -184,7 +184,8 @@ struct EmployeeListView: View {
     }
 
     private var shouldShowSyncBanner: Bool {
-        syncQueue.isSyncing
+        needsSignInForSync
+            || syncQueue.isSyncing
             || viewModel.isCheckingCloud
             || syncQueue.pendingCount > 0
             || syncWarningLine != nil
@@ -192,7 +193,11 @@ struct EmployeeListView: View {
 
     private var syncBanner: some View {
         HStack(alignment: .center, spacing: 10) {
-            if syncQueue.isSyncing || viewModel.isCheckingCloud {
+            if needsSignInForSync {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+            } else if syncQueue.isSyncing || viewModel.isCheckingCloud {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -211,7 +216,14 @@ struct EmployeeListView: View {
         }
     }
 
+    private var needsSignInForSync: Bool {
+        !AdminSession.shared.isAuthenticated
+    }
+
     private var syncStatusLine: String {
+        if needsSignInForSync {
+            return "Sync failed."
+        }
         if let progress = syncQueue.syncProgressMessage, !progress.isEmpty {
             return progress
         }
@@ -229,8 +241,11 @@ struct EmployeeListView: View {
     }
 
     private var syncWarningLine: String? {
+        if needsSignInForSync {
+            return "Sign in under Settings → Sync Account"
+        }
         if let error = syncQueue.lastError, !error.isEmpty,
-           !(NetworkMonitor.shared.isConnected && NetworkError.isOfflineMessage(error)) {
+           !(NetworkMonitor.shared.isConnected && NetworkError.isQueueMessage(error)) {
             return error
         }
         if let note = viewModel.cloudReport?.statusNote {
@@ -359,6 +374,9 @@ struct EmployeeDetailView: View {
     private var syncSummaryText: String {
         let local = cloudItem?.localSyncStatus ?? employee.syncStatus
         let indicator = EmployeeSyncIndicator(cloudStatus: cloudStatus, localStatus: local)
+        if !AdminSession.shared.isAuthenticated {
+            return "Sync failed. Sign in under Settings → Sync Account"
+        }
         if indicator.isUpToDate { return "Up to date on server" }
         if local == .failed { return "Sync failed — pull down to retry" }
         if local == .syncing { return "Syncing…" }

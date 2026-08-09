@@ -95,17 +95,17 @@ final class SyncService {
         var remoteParsed = rosterResult.parsed
 
         reportProgress("Applying server changes…")
-        summary.employeesImportedFromIMS = try await importMissingRemoteEmployees(
+        summary.employeesImportedFromServer = try await importMissingRemoteEmployees(
             context: context,
             remoteEmployees: remoteEmployees
         )
-        if summary.employeesImportedFromIMS > 0 {
+        if summary.employeesImportedFromServer > 0 {
             let refreshed = try await fetchRemoteRoster(mode: .full)
             remoteEmployees = refreshed.employees
             remoteParsed = refreshed.parsed
         }
 
-        summary.profilesMergedFromIMS = try await mergeRemoteEmployeeProfileUpdates(
+        summary.profilesMergedFromServer = try await mergeRemoteEmployeeProfileUpdates(
             context: context,
             remoteEmployees: remoteEmployees
         )
@@ -173,7 +173,7 @@ final class SyncService {
 
         if summary.employeesPosted > 0
             || summary.employeesLinked > 0
-            || summary.profilesMergedFromIMS > 0
+            || summary.profilesMergedFromServer > 0
             || summary.embeddingsUploaded > 0
             || summary.photosUploaded > 0
             || summary.idDocumentsUploaded > 0 {
@@ -223,7 +223,7 @@ final class SyncService {
         return PushSyncSummary()
     }
 
-    /// Imports IMS punches for the DTR day (including manual corrections) and prunes replaced rows.
+    /// Imports server punches for the DTR day (including manual corrections) and prunes replaced rows.
     private func pullRemoteAttendance(context: ModelContext, focusDate: Date?) async throws {
         let calendar = Calendar.current
         let rangeStart: Date
@@ -266,7 +266,7 @@ final class SyncService {
             let remoteServerIds = Set(
                 activeRows.compactMap { APIDecoding.normalizedServerId($0.serverId) }
             )
-            // Only prune when IMS returned rows for this day — avoids wiping local punches
+            // Only prune when the server returned rows for this day — avoids wiping local punches
             // after upload if the pull is empty or still catching up.
             if !remoteServerIds.isEmpty {
                 let localDayRecords = try attRepo.fetchAll(from: dayStart, to: dayEnd)
@@ -330,10 +330,10 @@ final class SyncService {
         }
     }
 
-    /// Removes local punches voided on IMS so DTR and scanner stay aligned.
+    /// Removes local punches voided on the server so DTR and scanner stay aligned.
     private func reconcileRemoteAttendanceVoids(context: ModelContext) async throws {
         let attRepo = AttendanceRepository(context: context)
-        // Use a wide lookback so voids are found even when IMS `updated_at` was not bumped on older builds.
+        // Use a wide lookback so voids are found even when the server `updated_at` was not bumped on older builds.
         guard let since = Calendar.current.date(byAdding: .day, value: -90, to: Date()) else { return }
 
         let remoteRows = try await api.getAttendance(updatedSince: since)
@@ -468,13 +468,13 @@ final class SyncService {
         var jobSitesSynced = 0
         var employeesPosted = 0
         var employeesLinked = 0
-        var employeesImportedFromIMS = 0
-        var profilesMergedFromIMS = 0
+        var employeesImportedFromServer = 0
+        var profilesMergedFromServer = 0
         var employeesOnServer = 0
         var employeesStillLocalOnly = 0
         var employeesResetForRetry = 0
         var employeesLocalTotal = 0
-        var employeesConfirmedOnIMS = 0
+        var employeesConfirmedOnServer = 0
         var embeddingsUploaded = 0
         var embeddingsFailed = 0
         var photosUploaded = 0
@@ -491,16 +491,16 @@ final class SyncService {
 
         var successMessage: String {
             if employeesPosted == 0 && employeesLinked == 0 {
-                var parts = ["\(employeesConfirmedOnIMS)/\(employeesLocalTotal) employees on server"]
-                if employeesImportedFromIMS > 0 {
-                    parts.append("\(employeesImportedFromIMS) imported from server")
+                var parts = ["\(employeesConfirmedOnServer)/\(employeesLocalTotal) employees on server"]
+                if employeesImportedFromServer > 0 {
+                    parts.append("\(employeesImportedFromServer) imported from server")
                 }
                 if embeddingsUploaded > 0 || photosUploaded > 0 {
                     parts.append("\(embeddingsUploaded) embeddings, \(photosUploaded) photos uploaded")
                 }
                 return parts.joined(separator: " · ")
             }
-            return "Uploaded \(employeesPosted), linked \(employeesLinked). \(employeesConfirmedOnIMS)/\(employeesLocalTotal) on server."
+            return "Uploaded \(employeesPosted), linked \(employeesLinked). \(employeesConfirmedOnServer)/\(employeesLocalTotal) on server."
         }
 
         var failureMessage: String {
@@ -538,7 +538,7 @@ final class SyncService {
 
         mutating func apply(_ report: EmployeeSyncReport) {
             employeesLocalTotal = report.localTotal
-            employeesConfirmedOnIMS = report.confirmedOnIMS
+            employeesConfirmedOnServer = report.confirmedOnServer
             employeesOnServer = report.remoteTotal
             employeesStillLocalOnly = report.needsUpload
             employeesResetForRetry += report.resetPhantomIds
@@ -575,7 +575,7 @@ final class SyncService {
         return hasEmployeeWork || attendancePending > 0
     }
 
-    /// Soft-delete employees on IMS that were removed on this device.
+    /// Soft-delete employees on the server that were removed on this device.
     func processPendingEmployeeDeletions() async {
         let pending = PendingEmployeeDeletionStore.pendingServerIds()
         guard !pending.isEmpty else { return }
@@ -756,7 +756,7 @@ final class SyncService {
         try persist(context)
     }
 
-    /// Keeps face enrollment photos and ID documents aligned on device and IMS (push + pull).
+    /// Keeps face enrollment photos and ID documents aligned on device and server (push + pull).
     private func reconcileRemoteChildAssets(context: ModelContext) async throws {
         let empRepo = EmployeeRepository(context: context)
         let photoRepo = FaceEnrollmentPhotoRepository(context: context)
@@ -1223,7 +1223,7 @@ final class SyncService {
         try persist(context)
     }
 
-    /// Pushes job site assignment for synced employees when local differs from IMS.
+    /// Pushes job site assignment for synced employees when local differs from the server.
     private func pushChangedJobSiteAssignments(
         context: ModelContext,
         remoteEmployees: [EmployeeDTO]? = nil
@@ -1263,7 +1263,7 @@ final class SyncService {
         try persist(context)
     }
 
-    /// Applies IMS profile edits (name, department, job site) when the server row is newer.
+    /// Applies server profile edits (name, department, job site) when the server row is newer.
     private func mergeRemoteEmployeeProfileUpdates(
         context: ModelContext,
         remoteEmployees: [EmployeeDTO]? = nil
@@ -1307,7 +1307,7 @@ final class SyncService {
         return merged
     }
 
-    /// Pulls employees reactivated on IMS (Restore to app) that are missing on this device.
+    /// Pulls employees reactivated on the server (Restore to app) that are missing on this device.
     private func importMissingRemoteEmployees(
         context: ModelContext,
         remoteEmployees: [EmployeeDTO]? = nil

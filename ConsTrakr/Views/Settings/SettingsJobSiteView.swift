@@ -66,7 +66,7 @@ struct SettingsJobSiteView: View {
             } header: {
                 Text("Default Job Site")
             } footer: {
-                Text("Changing the default site requires a 6-digit admin code from any user assigned to this device on the web dashboard.")
+                Text("Changing the default site requires a 6-digit admin code from any user assigned to this device on the web.")
             }
 
             if let adminGateError {
