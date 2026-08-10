@@ -116,7 +116,7 @@ enum EmployeeSyncChecker {
             if !isOnline {
                 statusNote = "You're offline — pull down to sync when connected."
             } else if !AdminSession.shared.isAuthenticated || !hasToken {
-                statusNote = "Sign in under Settings → Sync Account"
+                statusNote = "Sign in under More → Sync Account"
             } else {
                 statusNote = "Could not reach the server — pull down to try again."
             }

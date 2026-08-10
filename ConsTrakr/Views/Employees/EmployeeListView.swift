@@ -242,7 +242,7 @@ struct EmployeeListView: View {
 
     private var syncWarningLine: String? {
         if needsSignInForSync {
-            return "Sign in under Settings → Sync Account"
+            return "Sign in under More → Sync Account"
         }
         if let error = syncQueue.lastError, !error.isEmpty,
            !(NetworkMonitor.shared.isConnected && NetworkError.isOfflineMessage(error)) {
@@ -375,7 +375,7 @@ struct EmployeeDetailView: View {
         let local = cloudItem?.localSyncStatus ?? employee.syncStatus
         let indicator = EmployeeSyncIndicator(cloudStatus: cloudStatus, localStatus: local)
         if !AdminSession.shared.isAuthenticated {
-            return "Sync failed. Sign in under Settings → Sync Account"
+            return "Sync failed. Sign in under More → Sync Account"
         }
         if indicator.isUpToDate { return "Up to date on server" }
         if local == .failed { return "Sync failed — pull down to retry" }

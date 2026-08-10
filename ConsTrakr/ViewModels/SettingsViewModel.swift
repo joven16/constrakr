@@ -384,7 +384,7 @@ final class SettingsViewModel {
     /// Wipes local roster/DTR/enrollment data, then downloads everything from the server (server unchanged).
     func testRestoreFromCloud() async {
         guard AdminSession.shared.isAuthenticated else {
-            restoreTestMessage = "Sign in under Sync Account first."
+            restoreTestMessage = "Sign in under More → Sync Account first."
             showRestoreTestAlert = true
             return
         }

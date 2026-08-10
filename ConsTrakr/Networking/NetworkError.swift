@@ -24,7 +24,7 @@ enum NetworkError: LocalizedError {
         case .invalidResponse:
             return "Unexpected response from the server."
         case .unauthorized:
-            return "Sign in under Settings with your sync account before syncing."
+            return "Sign in under More → Sync Account before syncing."
         case .serverError(let code, let message):
             return message ?? "Server error (\(code))."
         case .deviceBlocked(let reason):

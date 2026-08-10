@@ -7,7 +7,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(SyncQueue.self) private var syncQueue
-    @AppStorage(AppConstants.UserDefaultsKeys.appTheme) private var appThemeRaw = AppTheme.system.rawValue
     @State private var viewModel = SettingsViewModel()
     @State private var showRestoreTestConfirmation = false
     var embedsNavigation: Bool = true
@@ -24,11 +23,9 @@ struct SettingsView: View {
 
     private var settingsForm: some View {
         List {
-            appearanceSection
             if viewModel.canShowAdminSettingsSections {
                 statusSection
                 syncSection
-                syncAccountSection
                 configurationSection
             }
             aboutSection
@@ -81,21 +78,6 @@ struct SettingsView: View {
 
     // MARK: - Sections
 
-    private var appearanceSection: some View {
-        Section {
-            Picker("Theme", selection: $appThemeRaw) {
-                ForEach(AppTheme.allCases) { theme in
-                    Text(theme.displayName).tag(theme.rawValue)
-                }
-            }
-            .pickerStyle(.segmented)
-        } header: {
-            Text("Appearance")
-        } footer: {
-            Text("System follows your iPhone light or dark mode. Light and dark override it for this app only.")
-        }
-    }
-
     private var statusSection: some View {
         Section {
             LabeledContent("Network") {
@@ -145,46 +127,8 @@ struct SettingsView: View {
             if let status = viewModel.statusMessage {
                 Text(status)
             } else {
-                Text("Pull down here or on Employees / DTR to sync. Auto sync and Full sync run everything. Sign in below first.")
+                Text("Pull down here or on Employees / DTR to sync. Auto sync and Full sync run everything. Sign in under More → Sync Account first.")
             }
-        }
-    }
-
-    private var syncAccountSection: some View {
-        Section {
-            if viewModel.isAdminAuthenticated {
-                LabeledContent("Signed in as", value: AdminSession.shared.username ?? "Admin")
-                Button("Sign out", role: .destructive) {
-                    viewModel.signOutAdmin()
-                }
-            } else {
-                TextField("Admin username", text: $viewModel.adminUsername)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .disabled(viewModel.isSigningIn)
-                SecureField("Password", text: $viewModel.adminPassword)
-                    .disabled(viewModel.isSigningIn)
-                if viewModel.isSigningIn {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .tint(Color(.systemGray))
-                        Spacer()
-                    }
-                } else {
-                    Button("Sign in") {
-                        Task { await viewModel.signInAdmin() }
-                    }
-                    .disabled(viewModel.adminUsername.isEmpty || viewModel.adminPassword.isEmpty)
-                }
-                if let signInError = viewModel.signInError {
-                    Text(signInError)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-            }
-        } header: {
-            Text("Sync Account")
         }
     }
 

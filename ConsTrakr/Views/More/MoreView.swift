@@ -23,17 +23,23 @@ struct MoreView: View {
                     }
                 }
 
+                NavigationLink {
+                    SettingsAppearanceView()
+                } label: {
+                    Label("Appearance", systemImage: "paintbrush.fill")
+                }
+
+                NavigationLink {
+                    SettingsSyncAccountView()
+                } label: {
+                    Label("Sync Account", systemImage: "person.badge.key.fill")
+                }
+
                 if access.canAccessAdminSettings() {
                     NavigationLink {
                         SettingsView(embedsNavigation: false)
                     } label: {
                         Label("Settings", systemImage: "gearshape.fill")
-                    }
-                } else {
-                    NavigationLink {
-                        SettingsAppearanceView()
-                    } label: {
-                        Label("Appearance", systemImage: "paintbrush.fill")
                     }
                 }
             }

@@ -144,16 +144,16 @@ final class SyncQueue {
 
         if SyncAuthStore.isTokenExpired() {
             AdminSession.shared.handleUnauthorized()
-            lastError = "Server sign-in expired. Open Settings → Sync account and sign in again."
+            lastError = "Server sign-in expired. Open More → Sync Account and sign in again."
             return
         }
 
         guard AdminSession.shared.isAuthenticated else {
-            lastError = "Sign in under Settings → Sync Account"
+            lastError = "Sign in under More → Sync Account"
             return
         }
         guard await APIService.shared.hasAuthToken() else {
-            lastError = "Sign in under Settings → Sync Account"
+            lastError = "Sign in under More → Sync Account"
             AdminSession.shared.handleUnauthorized()
             return
         }
