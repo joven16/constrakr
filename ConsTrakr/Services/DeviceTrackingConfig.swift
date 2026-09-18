@@ -41,6 +41,9 @@ enum DeviceTrackingConfig {
 
     static let minIntervalMinutes = 15
 
+    /// Fleet map pin — phone GPS is rarely ≤5 m unless outdoors; match geofence (~100 m).
+    static let maxGPSAccuracyMeters: Double = 100
+
     static func intervalMillis(charging: Bool) -> Int {
         let minutes = charging ? activeIntervalMinutes : normalIntervalMinutes
         return max(minIntervalMinutes, minutes) * 60_000

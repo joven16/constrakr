@@ -129,6 +129,11 @@ final class SyncService {
         if shouldReconcileRemoteChildAssets(context: context, mode: mode) {
             reportProgress("Verifying photos & ID documents…")
             try await reconcileRemoteChildAssets(context: context)
+            reportProgress("Rebuilding face templates from photos…")
+            summary.reembeddedPoses = try await EnrollmentPhotoReembedder.reembedAllIfNeeded(
+                context: context,
+                api: api
+            )
             lastChildAssetsReconcileAt = Date()
         }
 
@@ -477,6 +482,7 @@ final class SyncService {
         var employeesConfirmedOnServer = 0
         var embeddingsUploaded = 0
         var embeddingsFailed = 0
+        var reembeddedPoses = 0
         var photosUploaded = 0
         var photosFailed = 0
         var photosSkippedNoFile = 0
@@ -833,6 +839,27 @@ final class SyncService {
                 try empRepo.update(employee, persist: false)
             }
             NotificationCenter.default.post(name: AppConstants.Notifications.employeesDidChange, object: nil)
+        }
+
+        var enrollmentPhotoPullServerIds = Set<String>()
+        for employee in syncedEmployees {
+            guard let serverId = APIDecoding.normalizedServerId(employee.serverId) else { continue }
+            let remotePoses = posesByServerId[serverId] ?? []
+            guard !remotePoses.isEmpty else { continue }
+            let localPoses = Set(EnrollmentPhotoStore.loadAll(employeeId: employee.id).map(\.pose.rawValue))
+            if !remotePoses.isSubset(of: localPoses) {
+                enrollmentPhotoPullServerIds.insert(serverId)
+            }
+        }
+
+        if !enrollmentPhotoPullServerIds.isEmpty {
+            let remoteWithMedia = try await api.getFaceEnrollmentPhotos(includeMedia: true)
+            for dto in remoteWithMedia {
+                guard let serverId = dto.employeeServerId,
+                      enrollmentPhotoPullServerIds.contains(serverId),
+                      let employee = try empRepo.fetch(serverId: serverId) else { continue }
+                try photoRepo.upsertFromRemote(dto, employeeLocalId: employee.id)
+            }
         }
 
         try persist(context)
@@ -1412,6 +1439,8 @@ final class SyncService {
             }
         }
 
+        _ = try await EnrollmentPhotoReembedder.reembedAllIfNeeded(context: context, api: api)
+
         try persist(context)
         cachedRemoteEmployeeIndex = nil
         cachedRemoteEmployeeIndexAt = nil
@@ -1559,11 +1588,17 @@ final class SyncService {
         }
         try context.save()
 
+        let reembeddedPoses = try await EnrollmentPhotoReembedder.reembedAllIfNeeded(
+            context: context,
+            api: api
+        )
+
         return RestoreSummary(
             employees: employeeCount,
             embeddings: embeddingCount,
             enrollmentPhotos: photoCount,
             enrollmentPhotosWithJPEG: photoJPEGCount,
+            reembeddedPoses: reembeddedPoses,
             attendance: attendanceCount,
             punchPhotos: punchPhotoCount
         )
@@ -1601,6 +1636,7 @@ final class SyncService {
         let embeddings: Int
         let enrollmentPhotos: Int
         let enrollmentPhotosWithJPEG: Int
+        let reembeddedPoses: Int
         let attendance: Int
         let punchPhotos: Int
 
@@ -1611,6 +1647,9 @@ final class SyncService {
                 "\(enrollmentPhotosWithJPEG) enrollment photos",
                 "\(attendance) attendance records"
             ]
+            if reembeddedPoses > 0 {
+                parts.append("\(reembeddedPoses) face template(s) rebuilt from photos")
+            }
             if punchPhotos > 0 {
                 parts.append("\(punchPhotos) punch photos")
             }

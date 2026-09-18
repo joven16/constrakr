@@ -110,6 +110,33 @@ final class FaceEmbeddingRepository {
         }
     }
 
+    /// Replace unreadable remote rows with freshly generated local AdaFace templates.
+    func replaceLocalEmbeddings(
+        for employee: Employee,
+        embeddings: [FaceEmbedding],
+        employeeServerId: String?
+    ) throws {
+        let existing = try fetch(forEmployeeLocalId: employee.id)
+        existing.forEach { context.delete($0) }
+
+        guard !embeddings.isEmpty else {
+            try context.save()
+            return
+        }
+
+        let rows = try embeddings.map { embedding -> FaceEmbeddingEntity in
+            let ciphertext = try EmbeddingCrypto.encryptValues(embedding.values)
+            return FaceEmbeddingEntity(
+                employeeLocalId: employee.id,
+                employeeServerId: employeeServerId,
+                pose: embedding.pose,
+                encryptedValues: ciphertext,
+                syncStatus: .pending
+            )
+        }
+        try saveAll(rows)
+    }
+
     func upsertFromRemote(_ dto: FaceEmbeddingDTO, employeeLocalId: UUID) throws {
         // Prefer match by serverId to prevent duplicates on restore.
         if let serverId = dto.serverId {

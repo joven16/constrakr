@@ -86,6 +86,8 @@ enum DeviceTrackingCollector {
     }
 
     private static func readLocationOnce() async -> CLLocation? {
-        await SiteLocationGate().oneShotLocationForTracking(maxAccuracyMeters: 5)
+        await SiteLocationGate().oneShotLocationForTracking(
+            maxAccuracyMeters: DeviceTrackingConfig.maxGPSAccuracyMeters
+        )
     }
 }

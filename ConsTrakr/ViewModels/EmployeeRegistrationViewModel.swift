@@ -176,6 +176,7 @@ final class EmployeeRegistrationViewModel {
         idDocumentImage = nil
         idDocumentNumber = ""
         idDocumentCapturedAt = nil
+        selectedIdType = .philsysNationalId
         step = .faceScan
         startEnrollment()
         if !cameraManager.isRunning {

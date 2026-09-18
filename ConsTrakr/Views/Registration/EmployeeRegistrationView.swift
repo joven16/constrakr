@@ -101,9 +101,9 @@ struct EmployeeRegistrationView: View {
                 Text("Employee Information")
             } footer: {
                 if access.isAdminUnlocked {
-                    Text("Pick department first, then position. Employee ID is assigned automatically when registration completes (YYYYMM + sequence, e.g. 202608001).\n\nAssign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
+                    Text("Pick department first, then position. Employee ID is assigned automatically when registration completes (YYYYMM + sequence, e.g. 202608001).\n\nAssign a job site for on-site GPS checks at Time In / Time Out. Add sites under More → Job Sites.\n\nStep 1 of 3 — ID scan is optional; you can skip it on the next screen.")
                 } else {
-                    Text("Pick department first, then position. New employees are assigned to \(access.operatorSiteTitle ?? "your site").\n\nStep 1 of 3 — tap Continue for ID scan, then face enrollment.")
+                    Text("Pick department first, then position. New employees are assigned to \(access.operatorSiteTitle ?? "your site").\n\nStep 1 of 3 — ID scan is optional; you can skip it on the next screen.")
                 }
             }
         }
@@ -127,7 +127,7 @@ struct EmployeeRegistrationView: View {
             } header: {
                 Text("Government ID")
             } footer: {
-                Text("Choose the ID type and scan the physical card. The number is optional in v1.")
+                Text("Government ID is optional. Scan when available, or skip to go straight to face enrollment.")
             }
 
             Section {
@@ -160,6 +160,15 @@ struct EmployeeRegistrationView: View {
                 Text("ID photo")
             } footer: {
                 Text("In the scanner, tap Manual (top of screen) so capture waits for the shutter button. Auto mode detects the ID and snaps immediately.")
+            }
+
+            Section {
+                Button("Skip ID for now") {
+                    viewModel.skipIdDocumentStep()
+                }
+                .foregroundStyle(.secondary)
+            } footer: {
+                Text("You can add or update the ID later from the employee profile.")
             }
         }
         .scrollContentBackground(.hidden)

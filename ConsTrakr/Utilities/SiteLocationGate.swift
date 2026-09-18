@@ -43,6 +43,9 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
 
     private let manager = CLLocationManager()
     private var continuation: CheckedContinuation<CLLocation, Error>?
+    private var trackingContinuation: CheckedContinuation<CLLocation, Error>?
+    private var trackingBestLocation: CLLocation?
+    private var trackingMaxAccuracyMeters: Double = DeviceTrackingConfig.maxGPSAccuracyMeters
 
     override init() {
         super.init()
@@ -122,17 +125,74 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
         try await verifyInside(site: defaultSite)
     }
 
-    /// Fleet heartbeat — one-shot GPS, only when horizontal accuracy ≤ maxAccuracyMeters.
-    func oneShotLocationForTracking(maxAccuracyMeters: Double = 5) async -> CLLocation? {
-        do {
-            let location = try await authorizedLocation()
-            guard location.horizontalAccuracy > 0,
-                  location.horizontalAccuracy <= maxAccuracyMeters else {
-                return nil
+    /// Fleet heartbeat — one-shot GPS; keeps the best fix within maxAccuracyMeters.
+    func oneShotLocationForTracking(maxAccuracyMeters: Double = DeviceTrackingConfig.maxGPSAccuracyMeters) async -> CLLocation? {
+        if let fresh = try? await requestBestTrackingLocation(maxAccuracyMeters: maxAccuracyMeters, timeoutSeconds: 12) {
+            return fresh
+        }
+        if let cached = manager.location,
+           isTrackingLocationAcceptable(cached, maxAccuracyMeters: maxAccuracyMeters),
+           abs(cached.timestamp.timeIntervalSinceNow) < 300 {
+            return cached
+        }
+        return nil
+    }
+
+    private func isTrackingLocationAcceptable(_ location: CLLocation, maxAccuracyMeters: Double) -> Bool {
+        location.horizontalAccuracy > 0 && location.horizontalAccuracy <= maxAccuracyMeters
+    }
+
+    private func requestBestTrackingLocation(maxAccuracyMeters: Double, timeoutSeconds: Double) async throws -> CLLocation {
+        let status = manager.authorizationStatus
+        if status == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+            for _ in 0..<20 {
+                try await Task.sleep(for: .milliseconds(250))
+                if manager.authorizationStatus != .notDetermined { break }
             }
-            return location
-        } catch {
-            return nil
+        }
+
+        let auth = manager.authorizationStatus
+        guard auth == .authorizedWhenInUse || auth == .authorizedAlways else {
+            throw GateError.permissionDenied
+        }
+
+        return try await withThrowingTaskGroup(of: CLLocation.self) { group in
+            group.addTask { @MainActor in
+                try await self.requestBestTrackingFix(maxAccuracyMeters: maxAccuracyMeters)
+            }
+            group.addTask { @MainActor in
+                try await Task.sleep(for: .seconds(timeoutSeconds))
+                if let best = self.trackingBestLocation {
+                    return best
+                }
+                throw GateError.timedOut
+            }
+            defer {
+                group.cancelAll()
+                if let continuation = self.trackingContinuation {
+                    if let best = self.trackingBestLocation {
+                        continuation.resume(returning: best)
+                    } else {
+                        continuation.resume(throwing: GateError.locationUnavailable)
+                    }
+                    self.trackingContinuation = nil
+                }
+            }
+            return try await group.next()!
+        }
+    }
+
+    private func requestBestTrackingFix(maxAccuracyMeters: Double) async throws -> CLLocation {
+        try await withCheckedThrowingContinuation { continuation in
+            if let prior = self.continuation {
+                prior.resume(throwing: GateError.locationUnavailable)
+                self.continuation = nil
+            }
+            self.trackingBestLocation = nil
+            self.trackingMaxAccuracyMeters = maxAccuracyMeters
+            self.trackingContinuation = continuation
+            manager.requestLocation()
         }
     }
 
@@ -201,6 +261,23 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         Task { @MainActor in
+            if let trackingContinuation {
+                if isTrackingLocationAcceptable(location, maxAccuracyMeters: trackingMaxAccuracyMeters) {
+                    if let best = trackingBestLocation {
+                        trackingBestLocation = location.horizontalAccuracy < best.horizontalAccuracy ? location : best
+                    } else {
+                        trackingBestLocation = location
+                    }
+                    if location.horizontalAccuracy <= 25 {
+                        trackingContinuation.resume(returning: location)
+                        self.trackingContinuation = nil
+                        trackingBestLocation = nil
+                        return
+                    }
+                }
+                return
+            }
+
             continuation?.resume(returning: location)
             continuation = nil
         }
@@ -208,6 +285,17 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
+            if let trackingContinuation {
+                if let best = trackingBestLocation {
+                    trackingContinuation.resume(returning: best)
+                } else {
+                    trackingContinuation.resume(throwing: GateError.locationUnavailable)
+                }
+                self.trackingContinuation = nil
+                trackingBestLocation = nil
+                return
+            }
+
             continuation?.resume(throwing: GateError.locationUnavailable)
             continuation = nil
         }

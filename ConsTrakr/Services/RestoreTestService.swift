@@ -92,8 +92,11 @@ extension SyncService.RestoreSummary {
             "Attendance records: \(attendance)",
             "Punch photos on disk: \(punchPhotos)"
         ]
-        if employees > 0 && embeddings == 0 {
+        if employees > 0 && embeddings == 0 && reembeddedPoses == 0 {
             lines.append("⚠️ No face templates — face scan may not work offline.")
+        }
+        if reembeddedPoses > 0 {
+            lines.append("Rebuilt \(reembeddedPoses) face template(s) from enrollment photos on this device.")
         }
         if enrollmentPhotos > 0 && enrollmentPhotosWithJPEG < enrollmentPhotos {
             lines.append("⚠️ Some enrollment photos missing JPEG bytes from the server.")

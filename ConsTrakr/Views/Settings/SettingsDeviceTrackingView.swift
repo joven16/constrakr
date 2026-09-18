@@ -26,7 +26,7 @@ struct SettingsDeviceTrackingView: View {
                         DeviceTrackingConfig.isEnabled = value
                     }
             } footer: {
-                Text("Disabled by default. Sends battery, network, and one-shot GPS (≤5 m) to the server.")
+                Text("Disabled by default. Sends battery, network, and one-shot GPS (≤100 m accuracy) to the server.")
             }
 
             if enabled {
