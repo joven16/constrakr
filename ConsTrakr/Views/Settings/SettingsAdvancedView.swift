@@ -81,6 +81,14 @@ struct SettingsAdvancedView: View {
                 LabeledContent("Vision", value: "Face landmarks + head pose")
                 Toggle("Keep debug camera frames", isOn: $viewModel.uploadRawFramesEnabled.withToggleBusy())
             }
+
+            Section("Security") {
+                NavigationLink {
+                    SettingsAppPinView()
+                } label: {
+                    Label("App PIN", systemImage: "key.fill")
+                }
+            }
         }
         .navigationTitle("Advanced")
         .navigationBarTitleDisplayMode(.inline)

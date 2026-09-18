@@ -270,7 +270,7 @@ struct EmployeeRegistrationView: View {
             ))
         }
 
-        for pose in FacePose.allCases {
+        for pose in RegistrationPoseSettings.enabledEnrollmentOrder {
             let passed = viewModel.capturedEmbeddings[pose] != nil
             items.append(ChallengeChecklistItem(
                 id: pose.rawValue,

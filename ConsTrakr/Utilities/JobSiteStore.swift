@@ -89,7 +89,7 @@ enum JobSiteStore {
         return allSites.first(where: { $0.hasCoordinate })
     }
 
-    /// App-wide site selected in Settings / Job Sites (scanner "current site").
+    /// App-wide site selected under More → Job Sites (scanner "current site").
     static func currentOperatingSiteId() -> UUID? {
         if let id = defaultSiteId { return id }
         return defaultSite?.id

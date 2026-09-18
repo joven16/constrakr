@@ -122,6 +122,20 @@ final class SiteLocationGate: NSObject, CLLocationManagerDelegate {
         try await verifyInside(site: defaultSite)
     }
 
+    /// Fleet heartbeat — one-shot GPS, only when horizontal accuracy ≤ maxAccuracyMeters.
+    func oneShotLocationForTracking(maxAccuracyMeters: Double = 5) async -> CLLocation? {
+        do {
+            let location = try await authorizedLocation()
+            guard location.horizontalAccuracy > 0,
+                  location.horizontalAccuracy <= maxAccuracyMeters else {
+                return nil
+            }
+            return location
+        } catch {
+            return nil
+        }
+    }
+
     /// Returns whether the device is inside the site, without throwing for outside range.
     func isInside(site: JobSite) async -> Result<Bool, GateError> {
         do {

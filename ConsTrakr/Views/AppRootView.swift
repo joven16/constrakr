@@ -30,7 +30,6 @@ struct AppRootView: View {
                 _ = try? EmployeeRepository(context: context).repairStaleSyncState()
                 syncQueue.configure(context: context)
                 BackgroundSyncScheduler.register(syncQueue: syncQueue)
-                Task { await AdminSession.shared.restorePersistedSession() }
                 let autoSync = UserDefaults.standard.object(
                     forKey: AppConstants.UserDefaultsKeys.autoSyncEnabled
                 ) as? Bool ?? true
@@ -40,12 +39,22 @@ struct AppRootView: View {
                 BackgroundSyncScheduler.scheduleNextSync()
                 _ = NetworkMonitor.shared
                 isDeviceBlocked = DeviceStore.isBlocked
-                Task { await syncQueue.refreshDeviceAccessStatus() }
+                AppPinSettings.ensureDefaultIfNeeded()
+                Task {
+                    await AdminSession.shared.restorePersistedSession()
+                    DeviceTrackingCoordinator.start()
+                    await syncQueue.refreshDeviceAccessStatus()
+                }
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
                     isDeviceBlocked = DeviceStore.isBlocked
-                    Task { await syncQueue.refreshDeviceAccessStatus() }
+                    DeviceTrackingCoordinator.restart()
+                    Task {
+                        await syncQueue.refreshDeviceAccessStatus()
+                        await DeviceCommandService.shared.pollRemoteCommands()
+                        _ = await DeviceTrackingCoordinator.collectAndSyncIfDue()
+                    }
                 }
                 if phase == .active || phase == .background {
                     BackgroundSyncScheduler.scheduleNextSync()

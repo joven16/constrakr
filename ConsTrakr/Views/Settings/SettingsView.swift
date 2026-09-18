@@ -145,22 +145,22 @@ struct SettingsView: View {
             }
 
             NavigationLink {
-                SettingsJobSiteView(viewModel: viewModel)
-            } label: {
-                settingsRow(
-                    title: "Job sites & GPS",
-                    subtitle: viewModel.siteGeofenceEnabled ? "Geofence on" : "Geofence off",
-                    systemImage: "mappin.and.ellipse"
-                )
-            }
-
-            NavigationLink {
                 SettingsSupervisorPINView(viewModel: viewModel)
             } label: {
                 settingsRow(
                     title: "Supervisor PIN",
                     subtitle: SupervisorPINSettings.isRequired ? "Required before punch" : "Off",
                     systemImage: "lock.shield"
+                )
+            }
+
+            NavigationLink {
+                SettingsDeviceTrackingView()
+            } label: {
+                settingsRow(
+                    title: "Device tracking",
+                    subtitle: DeviceTrackingConfig.isEnabled ? "On" : "Off",
+                    systemImage: "location.circle"
                 )
             }
 

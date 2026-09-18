@@ -34,6 +34,8 @@ enum APIEndpoint {
     // Devices
     case getDevice(UUID?)
     case postDevice
+    case postDeviceHeartbeat
+    case ackDevicePlaySound
     case verifyDeviceAdminCode
     // Auth / health (restore gate)
     case adminLogin
@@ -63,6 +65,10 @@ enum APIEndpoint {
             return "\(Self.root)/departments"
         case .getDevice, .postDevice:
             return "\(Self.root)/devices"
+        case .postDeviceHeartbeat:
+            return "\(Self.root)/devices/heartbeat"
+        case .ackDevicePlaySound:
+            return "\(Self.root)/devices/play-sound/ack"
         case .verifyDeviceAdminCode:
             return "\(Self.root)/devices/verify-admin-code"
         case .adminLogin:
@@ -145,7 +151,7 @@ enum APIEndpoint {
 
     var method: String {
         switch self {
-        case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postEmployeeIdDocument, .postAttendance, .postJobSite, .postDevice, .adminLogin, .verifyDeviceAdminCode:
+        case .postEmployee, .postFaceEmbedding, .postFaceEnrollmentPhoto, .postEmployeeIdDocument, .postAttendance, .postJobSite, .postDevice, .postDeviceHeartbeat, .ackDevicePlaySound, .adminLogin, .verifyDeviceAdminCode:
             return "POST"
         case .putEmployee, .putJobSite:
             return "PUT"
@@ -896,6 +902,9 @@ struct DeviceDTO: Decodable {
     let adminCodeRequired: Bool
     let isBlocked: Bool
     let blockedReason: String?
+    let playSoundRequestId: String?
+    let playSoundRequestedAt: String?
+    let playSoundPlayedAt: String?
 
     var assignedUserLabels: [String] {
         if let assignedUsers, !assignedUsers.isEmpty {
@@ -926,6 +935,9 @@ struct DeviceDTO: Decodable {
         case adminCodeRequired = "admin_code_required"
         case isBlocked = "is_blocked"
         case blockedReason = "blocked_reason"
+        case playSoundRequestId = "play_sound_request_id"
+        case playSoundRequestedAt = "play_sound_requested_at"
+        case playSoundPlayedAt = "play_sound_played_at"
     }
 
     init(from decoder: Decoder) throws {
@@ -946,6 +958,59 @@ struct DeviceDTO: Decodable {
         adminCodeRequired = try container.decodeIfPresent(Bool.self, forKey: .adminCodeRequired) ?? false
         isBlocked = try container.decodeIfPresent(Bool.self, forKey: .isBlocked) ?? false
         blockedReason = try container.decodeIfPresent(String.self, forKey: .blockedReason)
+        playSoundRequestId = try container.decodeIfPresent(String.self, forKey: .playSoundRequestId)
+        playSoundRequestedAt = try container.decodeIfPresent(String.self, forKey: .playSoundRequestedAt)
+        playSoundPlayedAt = try container.decodeIfPresent(String.self, forKey: .playSoundPlayedAt)
+    }
+}
+
+struct DeviceHeartbeatRequest: Encodable {
+    let deviceId: UUID
+    let siteId: String?
+    let latitude: Double?
+    let longitude: Double?
+    let accuracyMeters: Float?
+    let batteryPercent: Int
+    let isCharging: Bool
+    let networkType: String?
+    let isOnline: Bool
+    let isKioskModeActive: Bool
+    let deviceModel: String
+    let platform: String
+    let iosVersion: String
+    let androidVersion: String
+    let appVersion: String
+    let timestamp: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case deviceId = "device_id"
+        case siteId = "site_id"
+        case latitude
+        case longitude
+        case accuracyMeters = "accuracy_meters"
+        case batteryPercent = "battery_percent"
+        case isCharging = "is_charging"
+        case networkType = "network_type"
+        case isOnline = "is_online"
+        case isKioskModeActive = "is_kiosk_mode_active"
+        case deviceModel = "device_model"
+        case platform
+        case iosVersion = "ios_version"
+        case androidVersion = "android_version"
+        case appVersion = "app_version"
+        case timestamp
+    }
+}
+
+struct DevicePlaySoundAckRequest: Encodable {
+    let deviceId: UUID
+    let requestId: String
+    let stage: String
+
+    enum CodingKeys: String, CodingKey {
+        case deviceId = "device_id"
+        case requestId = "request_id"
+        case stage
     }
 }
 

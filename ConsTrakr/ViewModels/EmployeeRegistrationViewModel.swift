@@ -2,7 +2,7 @@
 //  EmployeeRegistrationViewModel.swift
 //  ConsTrakr
 //
-//  Enrollment: blink → brief 3D scan → five poses.
+//  Enrollment: blink → brief 3D scan → configured pose angles.
 //  Calm, stable on-screen text (no per-frame hint thrashing).
 //
 
@@ -107,7 +107,8 @@ final class EmployeeRegistrationViewModel {
     private var isProcessingFrame = false
 
     var enrollmentProgress: Double {
-        Double(capturedEmbeddings.count) / Double(FacePose.allCases.count)
+        let total = max(RegistrationPoseSettings.enabledEnrollmentOrder.count, 1)
+        return Double(capturedEmbeddings.count) / Double(total)
     }
 
     var isFormValid: Bool {
@@ -117,8 +118,9 @@ final class EmployeeRegistrationViewModel {
     }
 
     var canSave: Bool {
-        isFormValid
-            && capturedEmbeddings.count == FacePose.allCases.count
+        let requiredPoses = RegistrationPoseSettings.enabledEnrollmentOrder
+        return isFormValid
+            && requiredPoses.allSatisfy({ capturedEmbeddings[$0] != nil })
             && !isSaving
             && !didSave
             && (capturedDepthSignature != nil || !cameraManager.isDepthAvailable)
@@ -236,7 +238,7 @@ final class EmployeeRegistrationViewModel {
         capturedDepthSignature = nil
         depthScanAccumulator.reset()
         depthScanProgress = 0
-        currentPose = .center
+        currentPose = RegistrationPoseSettings.enabledEnrollmentOrder.first ?? .center
         poseHoldStart = nil
         isEnrolling = true
         didSave = false
@@ -258,7 +260,7 @@ final class EmployeeRegistrationViewModel {
         capturedDepthSignature = nil
         depthScanAccumulator.reset()
         depthScanProgress = 0
-        currentPose = .center
+        currentPose = RegistrationPoseSettings.enabledEnrollmentOrder.first ?? .center
         poseHoldStart = nil
         isEnrolling = false
         scanPhase = .blink
@@ -274,7 +276,7 @@ final class EmployeeRegistrationViewModel {
         isSaving = true
         defer { isSaving = false }
 
-        let embeddings = FacePose.allCases.compactMap { capturedEmbeddings[$0] }
+        let embeddings = RegistrationPoseSettings.enabledEnrollmentOrder.compactMap { capturedEmbeddings[$0] }
         do {
             let employee = try employeeService.register(
                 firstName: firstName,
@@ -353,7 +355,7 @@ final class EmployeeRegistrationViewModel {
         capturedDepthSignature = nil
         depthScanAccumulator.reset()
         depthScanProgress = 0
-        currentPose = .center
+        currentPose = RegistrationPoseSettings.enabledEnrollmentOrder.first ?? .center
         poseHoldStart = nil
         isEnrolling = false
         isSaving = false
@@ -373,6 +375,7 @@ final class EmployeeRegistrationViewModel {
     private func setInstruction(_ text: String) {
         guard primaryInstruction != text else { return }
         primaryInstruction = text
+        VoicePrompt.shared.speakEnrollment(text)
     }
 
     private func beginDepthScan() {
@@ -384,7 +387,7 @@ final class EmployeeRegistrationViewModel {
 
     private func beginPoseCapture() {
         scanPhase = .poses
-        currentPose = .center
+        currentPose = RegistrationPoseSettings.enabledEnrollmentOrder.first ?? .center
         poseHoldStart = nil
         setInstruction(currentPose.instruction)
     }
@@ -532,7 +535,7 @@ final class EmployeeRegistrationViewModel {
         DebugFrameStore.maybePersistDebugFrame(frame, label: currentPose.rawValue)
         poseHoldStart = nil
 
-        if let next = currentPose.next {
+        if let next = currentPose.next(in: RegistrationPoseSettings.enabledEnrollmentOrder) {
             currentPose = next
             setInstruction(next.instruction)
         } else {
@@ -550,7 +553,7 @@ final class EmployeeRegistrationViewModel {
         capturedDepthSignature = nil
         depthScanAccumulator.reset()
         depthScanProgress = 0
-        currentPose = .center
+        currentPose = RegistrationPoseSettings.enabledEnrollmentOrder.first ?? .center
         poseHoldStart = nil
         scanPhase = .blink
         guideConditionMet = false

@@ -82,56 +82,6 @@ final class SettingsViewModel {
     var newSupervisorPIN = ""
     var confirmSupervisorPIN = ""
 
-    var siteGeofenceEnabled: Bool {
-        didSet {
-            if isApplyingGeofenceFromStore { return }
-            if siteGeofenceEnabled && !JobSiteStore.hasConfiguredSites {
-                siteGeofenceEnabled = false
-                statusMessage = "Add a job site under More → Job Sites first."
-                return
-            }
-            SiteGeofenceSettings.isEnabled = siteGeofenceEnabled
-        }
-    }
-
-    private var isApplyingGeofenceFromStore = false
-
-    func applyGeofenceChange(enabled: Bool) {
-        isApplyingGeofenceFromStore = true
-        siteGeofenceEnabled = enabled
-        isApplyingGeofenceFromStore = false
-    }
-
-    var defaultJobSiteId: UUID?
-
-    func setDefaultJobSiteId(_ id: UUID?) {
-        guard !isSyncingDefaultSiteFromStore else { return }
-        applyDefaultJobSiteChange(to: id)
-    }
-
-    func applyDefaultJobSiteChange(to id: UUID?) {
-        guard defaultJobSiteId != id else { return }
-        defaultJobSiteId = id
-        if JobSiteStore.defaultSiteId != id {
-            JobSiteStore.defaultSiteId = id
-        }
-    }
-
-    var configuredJobSites: [JobSite] {
-        JobSiteStore.allSites.filter(\.hasCoordinate)
-    }
-
-    /// Picker-safe selection — always matches a configured site when sites exist.
-    var effectiveDefaultSiteId: UUID? {
-        if let defaultJobSiteId,
-           configuredJobSites.contains(where: { $0.id == defaultJobSiteId }) {
-            return defaultJobSiteId
-        }
-        return configuredJobSites.first?.id
-    }
-
-    private var isSyncingDefaultSiteFromStore = false
-
     var adminUsername = ""
     var adminPassword = ""
 
@@ -160,9 +110,6 @@ final class SettingsViewModel {
         matchThreshold = Double(MatchThresholdSettings.current)
         uploadRawFramesEnabled = UserDefaults.standard.bool(forKey: AppConstants.UserDefaultsKeys.uploadRawFramesEnabled)
         supervisorPINEnabled = SupervisorPINSettings.isRequired
-        siteGeofenceEnabled = SiteGeofenceSettings.isRequired
-        defaultJobSiteId = JobSiteStore.defaultSiteId
-            ?? JobSiteStore.allSites.first(where: \.hasCoordinate)?.id
         reloadFaceScanPoseSettings()
     }
 
@@ -200,21 +147,7 @@ final class SettingsViewModel {
             adminUsername = saved
         }
         reloadFaceScanPoseSettings()
-        syncDefaultJobSiteFromStore()
         statusMessage = resolvedSyncStatusMessage()
-    }
-
-    func reloadJobSiteSettings() {
-        syncDefaultJobSiteFromStore()
-    }
-
-    private func syncDefaultJobSiteFromStore() {
-        isSyncingDefaultSiteFromStore = true
-        let resolved = JobSiteStore.defaultSiteId ?? configuredJobSites.first?.id
-        if defaultJobSiteId != resolved {
-            defaultJobSiteId = resolved
-        }
-        isSyncingDefaultSiteFromStore = false
     }
 
     private func resolvedSyncStatusMessage() -> String? {
@@ -245,7 +178,12 @@ final class SettingsViewModel {
         leftEnabled: Bool,
         rightEnabled: Bool,
         upEnabled: Bool,
-        downEnabled: Bool
+        downEnabled: Bool,
+        registrationCenterEnabled: Bool,
+        registrationLeftEnabled: Bool,
+        registrationRightEnabled: Bool,
+        registrationUpEnabled: Bool,
+        registrationDownEnabled: Bool
     ) async {
         isSavingFaceScanSettings = true
         defer { isSavingFaceScanSettings = false }
@@ -259,6 +197,14 @@ final class SettingsViewModel {
             .lookRight: rightEnabled,
             .lookUp: upEnabled,
             .lookDown: downEnabled,
+        ])
+
+        RegistrationPoseSettings.applyEnabledPoses([
+            .center: registrationCenterEnabled,
+            .left: registrationLeftEnabled,
+            .right: registrationRightEnabled,
+            .up: registrationUpEnabled,
+            .down: registrationDownEnabled,
         ])
 
         await Task.yield()

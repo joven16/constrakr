@@ -1146,10 +1146,18 @@ final class SyncService {
                 appVersion: DeviceStore.appVersion
             )
             DeviceStore.update(from: device)
+            await DeviceCommandService.shared.handle(device: device)
+            if DeviceTrackingConfig.isEnabled {
+                Task { _ = await DeviceTrackingCoordinator.collectAndSyncIfDue(force: false) }
+            }
         } catch {
             do {
                 if let device = try await api.fetchDevice(localId: DeviceStore.localId) {
                     DeviceStore.update(from: device)
+                    await DeviceCommandService.shared.handle(device: device)
+                    if DeviceTrackingConfig.isEnabled {
+                        Task { _ = await DeviceTrackingCoordinator.collectAndSyncIfDue(force: false) }
+                    }
                 }
             } catch {
                 // Non-fatal — default-site gating uses the last known assignment.

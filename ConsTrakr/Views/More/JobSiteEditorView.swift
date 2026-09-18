@@ -59,7 +59,6 @@ private struct JobSiteFormSnapshot: Equatable {
 
 struct JobSiteEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppAccessSession.self) private var access
 
     let existingSite: JobSite?
     /// Shown when presented in a sheet (add flow) where swipe-to-dismiss isn't obvious.
@@ -127,12 +126,10 @@ struct JobSiteEditorView: View {
                 Text("Site details")
             }
 
-            if isEditing {
-                Section {
-                    Toggle("Default site for attendance checks", isOn: $isDefaultSite.withToggleBusy())
-                } footer: {
-                    Text("The default site is used when an employee has no assigned site, and to gate the scanner tab.")
-                }
+            Section {
+                Toggle("Default for attendance checks", isOn: $isDefaultSite.withToggleBusy())
+            } footer: {
+                Text("Select this site as the default used for Time In / Time Out GPS checks, then tap Save.")
             }
 
             Section {
@@ -207,7 +204,11 @@ struct JobSiteEditorView: View {
                 loadExisting()
                 initialSnapshot = JobSiteFormSnapshot.from(site: existingSite)
             } else {
-                initialSnapshot = .empty
+                // First site starts as the attendance default; otherwise leave off until the user opts in.
+                isDefaultSite = JobSiteStore.defaultSiteId == nil
+                var snapshot = JobSiteFormSnapshot.empty
+                snapshot.isDefaultSite = isDefaultSite
+                initialSnapshot = snapshot
             }
         }
         .onChange(of: latitude) { _, _ in syncCoordinateFieldsFromState() }
@@ -222,8 +223,10 @@ struct JobSiteEditorView: View {
         }
         .fullScreenCover(isPresented: $showAdminCodePrompt) {
             AdminCodePromptSheet(
-                title: "Save job site",
-                message: "Enter the admin code to save changes.",
+                title: isEditing ? "Update job site" : "Add job site",
+                message: isEditing
+                    ? "Enter the admin code to save changes to this job site."
+                    : "Enter the admin code to add this job site.",
                 onConfirm: { code in
                     try await AdminCodeService.verify(passcode: code)
                     if let pendingSite {
@@ -305,37 +308,24 @@ struct JobSiteEditorView: View {
             longitude: longitude,
             radiusMeters: radiusMeters
         )
-        let setDefault: Bool
-        if isEditing {
-            setDefault = isDefaultSite
-        } else {
-            // New sites only become default when there isn't one yet.
-            setDefault = JobSiteStore.defaultSiteId == nil
-        }
+        let setDefault = isDefaultSite
 
-        if isEditing {
-            if access.isAdminUnlocked {
-                commitSave(site: site, setDefault: setDefault)
-                return
-            }
-            pendingSite = site
-            pendingSetDefault = setDefault
-            do {
-                try AdminCodeService.ensureChangeAllowed()
-                showAdminCodePrompt = true
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            return
+        pendingSite = site
+        pendingSetDefault = setDefault
+        do {
+            try AdminCodeService.ensureChangeAllowed()
+            showAdminCodePrompt = true
+        } catch {
+            errorMessage = error.localizedDescription
         }
-
-        commitSave(site: site, setDefault: setDefault)
     }
 
     private func commitSave(site: JobSite, setDefault: Bool) {
         JobSiteStore.upsert(site)
         if setDefault {
             JobSiteStore.setDefaultSite(id: site.id)
+        } else if JobSiteStore.defaultSiteId == site.id {
+            JobSiteStore.defaultSiteId = nil
         }
         dismiss()
     }

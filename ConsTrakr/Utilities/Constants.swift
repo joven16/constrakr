@@ -9,7 +9,7 @@ enum AppConstants {
     static let appName = "ConsTrakr"
     /// Host root only — `/constrakr-api` is appended automatically.
     /// Host root only — `/constrakr-api` is appended automatically.
-    static let apiBaseURL = "https://ims.rentelloph.com"
+    static let apiBaseURL = "https://rentelloph.com"
     static let apiPathPrefix = "/constrakr-api"
 
     // MARK: Matching thresholds
@@ -51,6 +51,7 @@ enum AppConstants {
         static let uploadRawFramesEnabled = "settings.uploadRawFramesEnabled"
         static let faceScanPosePrefix = "settings.faceScan.pose"
         static let faceScanStepPrefix = "settings.faceScan.step"
+        static let registrationPosePrefix = "settings.registration.pose"
         static let thresholdMigratedForAdaFace = "settings.thresholdMigratedForAdaFace"
         static let thresholdHardenedLookalike = "settings.thresholdHardenedLookalike"
         static let thresholdRecognitionRetune = "settings.thresholdRecognitionRetune"

@@ -588,6 +588,42 @@ actor APIService {
         return decoded.device
     }
 
+    func postDeviceHeartbeat(_ payload: DeviceHeartbeatRequest) async throws -> DeviceDTO {
+        try rejectIfUnconfigured()
+        var request = try makeRequest(for: .postDeviceHeartbeat)
+        request.httpBody = try JSONEncoder.api.encode(payload)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if isDemoHost {
+            return demoDevice()
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+        if let device = try? JSONDecoder.api.decode(DeviceDTO.self, from: data) {
+            return device
+        }
+        if let wrapped = try? JSONDecoder.api.decode(DeviceLookupResponse.self, from: data),
+           let device = wrapped.device {
+            return device
+        }
+        throw NetworkError.decodingFailed(message: APIDecoding.describeDecodingFailure(data: data, underlying: nil))
+    }
+
+    func ackDevicePlaySound(requestId: String, stage: String) async throws {
+        try rejectIfUnconfigured()
+        var request = try makeRequest(for: .ackDevicePlaySound)
+        request.httpBody = try JSONEncoder.api.encode(
+            DevicePlaySoundAckRequest(
+                deviceId: DeviceStore.localId,
+                requestId: requestId,
+                stage: stage
+            )
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if isDemoHost { return }
+        let (data, response) = try await session.data(for: request)
+        try validate(data: data, response: response)
+    }
+
     func verifyDeviceAdminCode(localId: UUID, passcode: String) async throws -> DeviceAdminCodeVerifyResponse {
         try rejectIfUnconfigured()
         var request = try makeRequest(for: .verifyDeviceAdminCode)

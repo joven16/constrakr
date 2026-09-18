@@ -26,6 +26,7 @@ final class AdminSession {
         await APIService.shared.setAuthToken(token)
         username = SyncAuthStore.loadUsername()
         isAuthenticated = true
+        DeviceTrackingCoordinator.start()
     }
 
     func signIn(username: String, password: String) async throws {
@@ -36,6 +37,7 @@ final class AdminSession {
         await APIService.shared.setAuthToken(response.accessToken)
         self.username = username
         self.isAuthenticated = true
+        DeviceTrackingCoordinator.start()
     }
 
     func signOut() {

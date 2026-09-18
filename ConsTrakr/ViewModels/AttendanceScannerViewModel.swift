@@ -158,6 +158,9 @@ final class AttendanceScannerViewModel {
     private func setStableInstruction(_ text: String) {
         guard stableInstruction != text else { return }
         stableInstruction = text
+        if isSessionActive, !livenessPassed {
+            VoicePrompt.shared.speakScanner(text)
+        }
     }
 
     private func syncStableInstructionForLiveness() {
@@ -400,6 +403,7 @@ final class AttendanceScannerViewModel {
         recognitionState = .liveness
         statusMessage = stableInstruction
         warmupFramesRemaining = AppConstants.scannerWarmupFrames
+        VoicePrompt.shared.speakScanner("\(type.displayName) started. Follow the on-screen steps.")
     }
 
     private func syncLivenessStepUI() {
@@ -964,6 +968,7 @@ final class AttendanceScannerViewModel {
             let when = attendance.timestamp.attendanceDisplay
             let message = "\(checkType.displayName): \(match.employeeName) · \(when)"
             statusMessage = message
+            VoicePrompt.shared.speakScanner("\(checkType.displayName) recorded for \(match.employeeName)")
             syncQueue?.refreshPendingCount()
 
             if NetworkMonitor.shared.isConnected {
